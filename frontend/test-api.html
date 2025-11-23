@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prueba de API - Clasificador Arancelario</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f7fa;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1, h2 {
+            color: #2c3e50;
+        }
+        .test-section {
+            border: 1px solid #e1e8ed;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 8px;
+            background: #f8f9fa;
+        }
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #2980b9;
+        }
+        button:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .response {
+            background: #e7f3ff;
+            border: 1px solid #b8daff;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        input[type="text"], input[type="email"], input[type="password"], textarea {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .status {
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .status.logged-in {
+            color: #27ae60;
+        }
+        .status.logged-out {
+            color: #e74c3c;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Prueba de API - Clasificador Arancelario</h1>
+        <div class="status" id="authStatus">Estado: No autenticado</div>
+        
+        <div class="test-section">
+            <h2>🔐 Autenticación</h2>
+            
+            <h3>Iniciar Sesión</h3>
+            <input type="email" id="loginEmail" placeholder="Correo" value="demo@importadora.com">
+            <input type="password" id="loginPassword" placeholder="Contraseña" value="demo123">
+            <button onclick="login()">Iniciar Sesión</button>
+            
+            <h3>Verificar Sesión</h3>
+            <button onclick="verificarSesion()">Verificar Sesión Actual</button>
+            
+            <h3>Cerrar Sesión</h3>
+            <button onclick="logout()">Cerrar Sesión</button>
+            
+            <div id="authResponse"></div>
+        </div>
+        
+        <div class="test-section">
+            <h2>📊 Clasificación de Productos</h2>
+            
+            <h3>Clasificar por Texto</h3>
+            <textarea id="productoTexto" placeholder="Descripción del producto" rows="3">Laptop marca Dell, modelo Inspiron 15, pantalla 15.6 pulgadas, procesador Intel Core i7, 16GB RAM, 512GB SSD</textarea>
+            <br>
+            <button onclick="clasificarTexto()" id="btnClasificarTexto" disabled>Clasificar Producto</button>
+            
+            <div id="clasificacionResponse"></div>
+        </div>
+        
+        <div class="test-section">
+            <h2>📈 Estadísticas</h2>
+            <button onclick="obtenerEstadisticas()" id="btnEstadisticas" disabled>Obtener Estadísticas</button>
+            <div id="estadisticasResponse"></div>
+        </div>
+        
+        <div class="test-section">
+            <h2>👥 Sesiones Activas</h2>
+            <button onclick="obtenerSesiones()" id="btnSesiones" disabled>Ver Sesiones Activas</button>
+            <div id="sesionesResponse"></div>
+        </div>
+    </div>
+
+    <script>
+        let authToken = null;
+        const API_BASE = 'http://localhost:3000';
+        
+        // Generar device fingerprint simple
+        function getDeviceFingerprint() {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.textBaseline = 'top';
+            ctx.font = '14px Arial';
+            ctx.fillText('Device fingerprint test', 2, 2);
+            
+            const fingerprint = canvas.toDataURL() + 
+                navigator.userAgent + 
+                navigator.language + 
+                screen.width + 'x' + screen.height +
+                new Date().getTimezoneOffset();
+                
+            return btoa(fingerprint).slice(0, 32);
+        }
+        
+        function updateAuthStatus(isLoggedIn, userInfo = null) {
+            const statusEl = document.getElementById('authStatus');
+            const buttons = ['btnClasificarTexto', 'btnEstadisticas', 'btnSesiones'];
+            
+            if (isLoggedIn) {
+                statusEl.textContent = `Estado: Autenticado como ${userInfo?.nombre || 'Usuario'}`;
+                statusEl.className = 'status logged-in';
+                buttons.forEach(id => document.getElementById(id).disabled = false);
+            } else {
+                statusEl.textContent = 'Estado: No autenticado';
+                statusEl.className = 'status logged-out';
+                buttons.forEach(id => document.getElementById(id).disabled = true);
+            }
+        }
+        
+        function showResponse(elementId, response, isError = false) {
+            const el = document.getElementById(elementId);
+            el.innerHTML = `<div class="${isError ? 'error' : 'success'}">
+                <div class="response">${JSON.stringify(response, null, 2)}</div>
+            </div>`;
+        }
+        
+        async function login() {
+            try {
+                const email = document.getElementById('loginEmail').value;
+                const password = document.getElementById('loginPassword').value;
+                
+                const response = await fetch(`${API_BASE}/api/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Device-Fingerprint': getDeviceFingerprint()
+                    },
+                    body: JSON.stringify({
+                        correo: email,
+                        contrasena: password
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    authToken = data.token;
+                    updateAuthStatus(true, data.usuario);
+                    showResponse('authResponse', data);
+                } else {
+                    updateAuthStatus(false);
+                    showResponse('authResponse', data, true);
+                }
+            } catch (error) {
+                showResponse('authResponse', { error: 'Error de conexión', details: error.message }, true);
+            }
+        }
+        
+        async function verificarSesion() {
+            if (!authToken) {
+                showResponse('authResponse', { error: 'No hay token de autenticación' }, true);
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/auth/verificar`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    updateAuthStatus(true, data.usuario);
+                    showResponse('authResponse', data);
+                } else {
+                    authToken = null;
+                    updateAuthStatus(false);
+                    showResponse('authResponse', data, true);
+                }
+            } catch (error) {
+                showResponse('authResponse', { error: 'Error de conexión', details: error.message }, true);
+            }
+        }
+        
+        async function logout() {
+            if (!authToken) {
+                showResponse('authResponse', { error: 'No hay sesión activa' }, true);
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/auth/logout`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                authToken = null;
+                updateAuthStatus(false);
+                showResponse('authResponse', data, !response.ok);
+            } catch (error) {
+                showResponse('authResponse', { error: 'Error de conexión', details: error.message }, true);
+            }
+        }
+        
+        async function clasificarTexto() {
+            if (!authToken) {
+                showResponse('clasificacionResponse', { error: 'Debe iniciar sesión primero' }, true);
+                return;
+            }
+            
+            const producto = document.getElementById('productoTexto').value;
+            if (!producto.trim()) {
+                showResponse('clasificacionResponse', { error: 'Debe ingresar una descripción del producto' }, true);
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/clasificar`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`,
+                        'X-Device-Fingerprint': getDeviceFingerprint()
+                    },
+                    body: JSON.stringify({
+                        producto: producto,
+                        solo_hs: false
+                    })
+                });
+                
+                const data = await response.json();
+                showResponse('clasificacionResponse', data, !response.ok);
+                
+                if (!response.ok && data.error === 'token_expired') {
+                    authToken = null;
+                    updateAuthStatus(false);
+                }
+            } catch (error) {
+                showResponse('clasificacionResponse', { error: 'Error de conexión', details: error.message }, true);
+            }
+        }
+        
+        async function obtenerEstadisticas() {
+            if (!authToken) {
+                showResponse('estadisticasResponse', { error: 'Debe iniciar sesión primero' }, true);
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/estadisticas`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                const data = await response.json();
+                showResponse('estadisticasResponse', data, !response.ok);
+            } catch (error) {
+                showResponse('estadisticasResponse', { error: 'Error de conexión', details: error.message }, true);
+            }
+        }
+        
+        async function obtenerSesiones() {
+            if (!authToken) {
+                showResponse('sesionesResponse', { error: 'Debe iniciar sesión primero' }, true);
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/auth/sesiones`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                const data = await response.json();
+                showResponse('sesionesResponse', data, !response.ok);
+            } catch (error) {
+                showResponse('sesionesResponse', { error: 'Error de conexión', details: error.message }, true);
+            }
+        }
+        
+        // Verificar sesión al cargar la página
+        window.addEventListener('load', () => {
+            updateAuthStatus(false);
+        });
+    </script>
+</body>
+</html>

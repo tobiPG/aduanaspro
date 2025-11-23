@@ -1,0 +1,15 @@
+{
+  "name": "clasificador-arancelario",
+  "version": "1.0.0",
+  "description": "Sistema web para clasificación arancelaria usando OpenAI Assistant",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.js",
+    "dev": "nodemon backend/server.js",
+    "install-backend": "cd backend && npm install",
+    "install-frontend": "cd frontend && npm install"
+  },
+  "keywords": ["arancel", "clasificacion", "openai", "dominicana"],
+  "author": "Tu Nombre",
+  "license": "ISC"
+}

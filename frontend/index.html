@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clasificador Arancelario Dominicano</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="styles.css" rel="stylesheet">
+    <link href="action-buttons.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <i class="fas fa-shipping-fast"></i>
+                <h1>Clasificador Arancelario RD</h1>
+                <p>Sistema automatizado de clasificación basado en el Arancel Dominicano</p>
+                
+                <!-- Auth Info -->
+                <div id="auth-info" class="auth-info" style="display: none;">
+                    <div class="user-info">
+                        <i class="fas fa-user"></i>
+                        <span id="user-name">Usuario</span>
+                        <span class="plan-badge" id="user-plan">Plan</span>
+                    </div>
+                    <div class="usage-info">
+                        <div class="tokens-usage">
+                            <i class="fas fa-coins"></i>
+                            <span id="tokens-info">0 / 0 tokens</span>
+                        </div>
+                        <div class="devices-usage">
+                            <i class="fas fa-mobile-alt"></i>
+                            <span id="devices-info">0 / 0 dispositivos</span>
+                        </div>
+                    </div>
+                    <button class="btn-logout" onclick="logout()">
+                        <i class="fas fa-sign-out-alt"></i>
+                        Cerrar Sesión
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Login Modal -->
+        <!-- Modal de Login - DESHABILITADO -->
+        <div id="login-modal" class="modal" style="display: none !important;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2><i class="fas fa-lock"></i> Iniciar Sesión</h2>
+                    <p>Accede con tu cuenta para usar el clasificador arancelario</p>
+                </div>
+                
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="login-email">
+                            <i class="fas fa-envelope"></i>
+                            Correo Electrónico
+                        </label>
+                        <input type="email" id="login-email" placeholder="correo@empresa.com" value="demo@importadora.com">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="login-password">
+                            <i class="fas fa-key"></i>
+                            Contraseña
+                        </label>
+                        <input type="password" id="login-password" placeholder="Tu contraseña" value="demo123">
+                    </div>
+                    
+                    <div id="login-error" class="login-error" style="display: none;"></div>
+                    
+                    <button class="btn-primary btn-full" onclick="performLogin()" id="btn-login">
+                        <i class="fas fa-sign-in-alt"></i>
+                        Iniciar Sesión
+                    </button>
+                    
+                    <div class="demo-info">
+                        <h4><i class="fas fa-info-circle"></i> Cuenta Demo</h4>
+                        <p>Usa las credenciales pre-llenadas para probar el sistema</p>
+                        <ul>
+                            <li>Email: demo@importadora.com</li>
+                            <li>Contraseña: demo123</li>
+                            <li>Plan: Pro (1,000,000 tokens/mes)</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab-button active" onclick="showTab('texto')">
+                    <i class="fas fa-keyboard"></i>
+                    Clasificar por Texto
+                </button>
+                <button class="tab-button" onclick="showTab('archivo')">
+                    <i class="fas fa-file-upload"></i>
+                    Subir Archivo
+                </button>
+                <button class="tab-button" onclick="showTab('manual')">
+                    <i class="fas fa-edit"></i>
+                    Clasificación Manual
+                </button>
+                <button class="tab-button" onclick="showTab('planes')">
+                    <i class="fas fa-credit-card"></i>
+                    Gestionar Plan
+                </button>
+            </div>
+
+            <!-- Tab Content: Texto -->
+            <div id="tab-texto" class="tab-content" style="display: block;">
+                <div class="input-section">
+                    <h3><i class="fas fa-edit"></i> Descripción del Producto</h3>
+                    <textarea 
+                        id="producto-texto" 
+                        placeholder="Describe detalladamente el producto que deseas clasificar&#10;&#10;Ejemplo:&#10;Smartphone marca Samsung Galaxy S23, pantalla AMOLED de 6.1 pulgadas, memoria RAM 8GB, almacenamiento 256GB, cámara principal 50MP, conectividad 5G, sistema operativo Android, fabricado en Corea del Sur, nuevo en caja sellada."
+                        rows="6"></textarea>
+                    
+                    <div class="options">
+                        <label class="checkbox-container">
+                            <input type="checkbox" id="solo-hs-texto">
+                            <span class="checkmark"></span>
+                            Solo código HS (sin detalles adicionales)
+                        </label>
+                    </div>
+                    
+                    <button class="btn-primary" onclick="clasificarTexto()">
+                        <i class="fas fa-search"></i>
+                        Clasificar Producto
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tab Content: Archivo -->
+            <div id="tab-archivo" class="tab-content">
+                <div class="input-section">
+                    <h3><i class="fas fa-file-alt"></i> Subir Factura o Documento</h3>
+                    
+                    <div class="file-upload-area" onclick="document.getElementById('file-input').click()">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <p>Haz clic aquí para seleccionar un archivo</p>
+                        <small>PDF, imágenes (JPG, PNG) o archivos de texto</small>
+                        <input type="file" id="file-input" accept=".pdf,.jpg,.jpeg,.png,.txt" style="display: none;" onchange="handleFileSelect(this)">
+                    </div>
+                    
+                    <div id="file-info" class="file-info" style="display: none;"></div>
+                    
+                    <div class="options">
+                        <label class="checkbox-container">
+                            <input type="checkbox" id="solo-hs-archivo">
+                            <span class="checkmark"></span>
+                            Solo código HS (sin detalles adicionales)
+                        </label>
+                    </div>
+                    
+                    <button class="btn-primary" onclick="clasificarArchivo()" id="btn-clasificar-archivo" disabled>
+                        <i class="fas fa-file-search"></i>
+                        Clasificar desde Archivo
+                    </button>
+                </div>
+            </div>
+
+            <!-- Clasificación Manual -->
+            <div id="tab-manual" class="tab-content" style="display: none;">
+                <div class="form-section">
+                    <h3><i class="fas fa-edit"></i> Declaración de Importación (DUA) - Clasificación Manual</h3>
+                    <p>Complete toda la información necesaria para una declaración de importación completa</p>
+                    
+                    <form id="manual-form" class="manual-classification-form">
+                        
+                        <!-- 1. DECLARACIÓN (Datos Iniciales) -->
+                        <div class="form-group-section">
+                            <h4><i class="fas fa-file-alt"></i> 1. Declaración (Datos Iniciales)</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="manual-fecha-declaracion">Fecha de Declaración *</label>
+                                    <input type="date" id="manual-fecha-declaracion" class="form-input" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-tipo-despacho">Tipo de Despacho *</label>
+                                    <select id="manual-tipo-despacho" class="form-input" required>
+                                        <option value="">Seleccione tipo de despacho</option>
+                                        <option value="GENERAL">GENERAL</option>
+                                        <option value="NO MANIFIESTO">NO MANIFIESTO</option>
+                                        <option value="VENTA AL MERCADO LOCAL">VENTA AL MERCADO LOCAL</option>
+                                        <option value="ENTREGA PROVISIONAL">ENTREGA PROVISIONAL</option>
+                                        <option value="CENTRO LOGISTICO">CENTRO LOGÍSTICO</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-administracion">Administración Aduanera *</label>
+                                    <select id="manual-administracion" class="form-input" required>
+                                        <option value="">Seleccionar administración...</option>
+                                        <option value="ADUANA PRINCIPAL SANTO DOMINGO">ADUANA PRINCIPAL SANTO DOMINGO</option>
+                                        <option value="ADUANA PUERTO HAINA">ADUANA PUERTO HAINA</option>
+                                        <option value="ADUANA PUERTO MULTIMODAL CAUCEDO">ADUANA PUERTO MULTIMODAL CAUCEDO</option>
+                                        <option value="ADUANA AEROPUERTO LAS AMERICAS">ADUANA AEROPUERTO LAS AMÉRICAS</option>
+                                        <option value="ADUANA PUERTO PLATA">ADUANA PUERTO PLATA</option>
+                                        <option value="ADUANA AEROPUERTO PUERTO PLATA">ADUANA AEROPUERTO PUERTO PLATA</option>
+                                        <option value="ADUANA SANTIAGO">ADUANA SANTIAGO</option>
+                                        <option value="ADUANA AEROPUERTO CIBAO">ADUANA AEROPUERTO CIBAO</option>
+                                        <option value="ADUANA LA ROMANA">ADUANA LA ROMANA</option>
+                                        <option value="ADUANA BARAHONA">ADUANA BARAHONA</option>
+                                        <option value="ADUANA MONTE CRISTI">ADUANA MONTE CRISTI</option>
+                                        <option value="ADUANA MANZANILLO">ADUANA MANZANILLO</option>
+                                        <option value="ADUANA BANI">ADUANA BANÍ</option>
+                                        <option value="ADUANA AZUA">ADUANA AZUA</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. DOCUMENTO DE EMBARQUE -->
+                        <div class="form-group-section">
+                            <h4><i class="fas fa-ship"></i> 2. Documento de Embarque</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="manual-puerto-entrada">Puerto de Entrada *</label>
+                                    <select id="manual-puerto-entrada" class="form-input" required>
+                                        <option value="">Seleccionar puerto...</option>
+                                        <option value="PUERTO HAINA">PUERTO HAINA</option>
+                                        <option value="PUERTO MULTIMODAL CAUCEDO">PUERTO MULTIMODAL CAUCEDO</option>
+                                        <option value="PUERTO SANTO DOMINGO">PUERTO SANTO DOMINGO</option>
+                                        <option value="PUERTO PUERTO PLATA">PUERTO PUERTO PLATA</option>
+                                        <option value="PUERTO LA ROMANA">PUERTO LA ROMANA</option>
+                                        <option value="PUERTO BARAHONA">PUERTO BARAHONA</option>
+                                        <option value="PUERTO MONTE CRISTI">PUERTO MONTE CRISTI</option>
+                                        <option value="PUERTO MANZANILLO">PUERTO MANZANILLO</option>
+                                        <option value="AEROPUERTO LAS AMERICAS">AEROPUERTO LAS AMÉRICAS</option>
+                                        <option value="AEROPUERTO CIBAO SANTIAGO">AEROPUERTO CIBAO SANTIAGO</option>
+                                        <option value="AEROPUERTO PUERTO PLATA">AEROPUERTO PUERTO PLATA</option>
+                                        <option value="AEROPUERTO PUNTA CANA">AEROPUERTO PUNTA CANA</option>
+                                        <option value="AEROPUERTO LA ROMANA">AEROPUERTO LA ROMANA</option>
+                                        <option value="AEROPUERTO BARAHONA">AEROPUERTO BARAHONA</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-pais-procedencia">País de Procedencia *</label>
+                                    <input type="text" id="manual-pais-procedencia" class="form-input" required placeholder="Ej: China">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-empresa-transportista">Empresa Transportista</label>
+                                    <input type="text" id="manual-empresa-transportista" class="form-input" placeholder="Nombre de la línea naviera/aérea">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-numero-viaje">Número de Viaje/Vuelo</label>
+                                    <input type="text" id="manual-numero-viaje" class="form-input" placeholder="Ej: MSC001, AA1234">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-nacionalidad-transporte">Nacionalidad de Transportación</label>
+                                    <input type="text" id="manual-nacionalidad-transporte" class="form-input" placeholder="Ej: Panamá">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-medio-transporte">Medio de Transporte *</label>
+                                    <select id="manual-medio-transporte" class="form-input" required>
+                                        <option value="">Seleccionar medio...</option>
+                                        <option value="1 - MARITIMO">1 - MARÍTIMO</option>
+                                        <option value="2 - FERROVIARIO">2 - FERROVIARIO</option>
+                                        <option value="3 - CARRETERA">3 - CARRETERA</option>
+                                        <option value="4 - AEREO">4 - AÉREO</option>
+                                        <option value="5 - CORREO">5 - CORREO</option>
+                                        <option value="7 - INSTALACION FIJA">7 - INSTALACIÓN FIJA</option>
+                                        <option value="8 - NAVEGACION INTERIOR">8 - NAVEGACIÓN INTERIOR</option>
+                                        <option value="9 - MODO NO DETERMINADO">9 - MODO NO DETERMINADO</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-fecha-llegada">Fecha de Llegada</label>
+                                    <input type="date" id="manual-fecha-llegada" class="form-input">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 3. DEPÓSITO DE DESTINO -->
+                        <div class="form-group-section">
+                            <h4><i class="fas fa-warehouse"></i> 3. Depósito de Destino</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="manual-tipo-localizacion">Tipo de Localización</label>
+                                    <select id="manual-tipo-localizacion" class="form-input">
+                                        <option value="">Seleccionar...</option>
+                                        <option value="Depósito Aduanero">Depósito Aduanero</option>
+                                        <option value="Zona Franca">Zona Franca</option>
+                                        <option value="Almacén Fiscal">Almacén Fiscal</option>
+                                        <option value="Terminal Portuaria">Terminal Portuaria</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-deposito">Depósito Seleccionado</label>
+                                    <input type="text" id="manual-deposito" class="form-input" placeholder="Nombre del depósito">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 4. IMPORTADOR -->
+                        <div class="form-group-section">
+                            <h4><i class="fas fa-building"></i> 4. Importador</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="manual-importador-nombre">Nombre del Importador *</label>
+                                    <input type="text" id="manual-importador-nombre" class="form-input" required placeholder="Razón social completa">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-importador-documento">RNC/Cédula *</label>
+                                    <input type="text" id="manual-importador-documento" class="form-input" required placeholder="###-#####-#">
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="manual-importador-direccion">Dirección *</label>
+                                    <input type="text" id="manual-importador-direccion" class="form-input" required placeholder="Dirección completa">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-importador-telefono">Teléfono</label>
+                                    <input type="tel" id="manual-importador-telefono" class="form-input" placeholder="(809) 123-4567">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-importador-email">E-mail</label>
+                                    <input type="email" id="manual-importador-email" class="form-input" placeholder="correo@empresa.com">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 5. AGENTE DE ADUANAS -->
+                        <div class="form-group-section">
+                            <h4><i class="fas fa-user-tie"></i> 5. Agente de Aduanas</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="manual-agente-nombre">Nombre del Agente *</label>
+                                    <input type="text" id="manual-agente-nombre" class="form-input" required placeholder="Nombre del agente aduanal">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-agente-licencia">Licencia del Agente</label>
+                                    <input type="text" id="manual-agente-licencia" class="form-input" placeholder="Número de licencia">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 6. PROVEEDOR -->
+                        <div class="form-group-section">
+                            <h4><i class="fas fa-truck"></i> 6. Proveedor</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="manual-proveedor-nombre">Nombre del Proveedor *</label>
+                                    <input type="text" id="manual-proveedor-nombre" class="form-input" required placeholder="Nombre de la empresa proveedora">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-proveedor-documento">Documento</label>
+                                    <input type="text" id="manual-proveedor-documento" class="form-input" placeholder="Tax ID / Documento fiscal">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-proveedor-pais">País *</label>
+                                    <input type="text" id="manual-proveedor-pais" class="form-input" required placeholder="País del proveedor">
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="manual-proveedor-direccion">Dirección</label>
+                                    <input type="text" id="manual-proveedor-direccion" class="form-input" placeholder="Dirección del proveedor">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-proveedor-telefono">Teléfono</label>
+                                    <input type="tel" id="manual-proveedor-telefono" class="form-input" placeholder="Teléfono internacional">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-proveedor-email">E-mail</label>
+                                    <input type="email" id="manual-proveedor-email" class="form-input" placeholder="correo@proveedor.com">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 7. RÉGIMEN ADUANERO Y ACUERDO -->
+                        <div class="form-group-section">
+                            <h4><i class="fas fa-gavel"></i> 7. Régimen Aduanero y Acuerdo</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="manual-regimen-aduanero">Régimen Aduanero *</label>
+                                    <select id="manual-regimen-aduanero" class="form-input" required>
+                                        <option value="">Seleccionar régimen...</option>
+                                        <option value="10 - IMPORTACION DEFINITIVA">10 - IMPORTACIÓN DEFINITIVA</option>
+                                        <option value="21 - ADMISION TEMPORAL PERFECCIONAMIENTO ACTIVO">21 - ADMISIÓN TEMPORAL PERFECCIONAMIENTO ACTIVO</option>
+                                        <option value="22 - ADMISION TEMPORAL OTROS CASOS">22 - ADMISIÓN TEMPORAL OTROS CASOS</option>
+                                        <option value="31 - DEPOSITO ADUANERO PUBLICO">31 - DEPÓSITO ADUANERO PÚBLICO</option>
+                                        <option value="32 - DEPOSITO ADUANERO PRIVADO">32 - DEPÓSITO ADUANERO PRIVADO</option>
+                                        <option value="40 - TRANSITO ADUANERO">40 - TRÁNSITO ADUANERO</option>
+                                        <option value="51 - ZONA FRANCA INDUSTRIAL">51 - ZONA FRANCA INDUSTRIAL</option>
+                                        <option value="52 - ZONA FRANCA COMERCIAL">52 - ZONA FRANCA COMERCIAL</option>
+                                        <option value="53 - ZONA FRANCA ESPECIAL">53 - ZONA FRANCA ESPECIAL</option>
+                                        <option value="60 - REIMPORTACION">60 - REIMPORTACIÓN</option>
+                                        <option value="70 - TRANSFORMACION BAJO CONTROL ADUANERO">70 - TRANSFORMACIÓN BAJO CONTROL ADUANERO</option>
+                                        <option value="80 - IMPORTACION TEMPORAL FERIAS">80 - IMPORTACIÓN TEMPORAL FERIAS</option>
+                                        <option value="90 - OTROS REGIMENES">90 - OTROS REGÍMENES</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-acuerdo-comercial">Acuerdo Comercial</label>
+                                    <select id="manual-acuerdo-comercial" class="form-input">
+                                        <option value="">No aplica</option>
+                                        <option value="DR-CAFTA">DR-CAFTA (Tratado de Libre Comercio con Estados Unidos y Centroamérica)</option>
+                                        <option value="CARICOM">CARICOM (Comunidad del Caribe)</option>
+                                        <option value="EPA-CARIFORUM">EPA-CARIFORUM (Acuerdo de Asociación Económica UE-Caribe)</option>
+                                        <option value="ACUERDO PANAMA">ACUERDO DE ALCANCE PARCIAL CON PANAMÁ</option>
+                                        <option value="SGP-UE">SGP-UE (Sistema Generalizado de Preferencias - Unión Europea)</option>
+                                        <option value="SGP-CANADA">SGP-CANADÁ (Sistema Generalizado de Preferencias - Canadá)</option>
+                                        <option value="ACUERDO CHILE">ACUERDO DE LIBRE COMERCIO CON CHILE</option>
+                                        <option value="ACUERDO PERU">ACUERDO DE LIBRE COMERCIO CON PERÚ</option>
+                                        <option value="ACUERDO COLOMBIA">ACUERDO DE LIBRE COMERCIO CON COLOMBIA</option>
+                                        <option value="ACUERDO COSTA RICA">ACUERDO DE LIBRE COMERCIO CON COSTA RICA</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 8. DETALLE DE LA MERCANCÍA -->
+                        <div class="form-group-section">
+                            <h4><i class="fas fa-box"></i> 8. Detalle de la Mercancía (Items)</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="manual-hs-code">Código S.A. (HS) *</label>
+                                    <input type="text" id="manual-hs-code" class="form-input" required placeholder="####.##.##.##" maxlength="13">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-marca">Marca</label>
+                                    <input type="text" id="manual-marca" class="form-input" placeholder="Marca del producto">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-modelo">Modelo</label>
+                                    <input type="text" id="manual-modelo" class="form-input" placeholder="Modelo del producto">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-estado">Estado (Condición)</label>
+                                    <select id="manual-estado" class="form-input">
+                                        <option value="">Seleccionar...</option>
+                                        <option value="Nuevo">Nuevo</option>
+                                        <option value="Usado">Usado</option>
+                                        <option value="Reacondicionado">Reacondicionado</option>
+                                        <option value="Dañado">Dañado</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-producto">Producto (Nombre Comercial) *</label>
+                                    <input type="text" id="manual-producto" class="form-input" required placeholder="Descripción comercial del producto">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-ano">Año (Vehículos/Maquinaria)</label>
+                                    <input type="number" id="manual-ano" class="form-input" placeholder="2024" min="1900" max="2030">
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="manual-especificacion">Especificación *</label>
+                                    <textarea id="manual-especificacion" class="form-input" required rows="3" placeholder="Especificación técnica detallada del producto"></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-unidad">Unidad *</label>
+                                    <select id="manual-unidad" class="form-input" required>
+                                        <option value="">Seleccionar...</option>
+                                        <option value="Unidades">Unidades</option>
+                                        <option value="kg">Kilogramos</option>
+                                        <option value="Litros">Litros</option>
+                                        <option value="Metros">Metros</option>
+                                        <option value="M2">Metros cuadrados</option>
+                                        <option value="M3">Metros cúbicos</option>
+                                        <option value="Pares">Pares</option>
+                                        <option value="Docenas">Docenas</option>
+                                        <option value="Toneladas">Toneladas</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-cantidad">Cantidad *</label>
+                                    <input type="number" id="manual-cantidad" class="form-input" required placeholder="1" min="0.001" step="0.001">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-fob-unitario">FOB Unitario (USD) *</label>
+                                    <input type="number" id="manual-fob-unitario" class="form-input" required placeholder="0.00" step="0.01" min="0">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-certificado-origen">Certificado de Origen</label>
+                                    <select id="manual-certificado-origen" class="form-input">
+                                        <option value="">No aplica</option>
+                                        <option value="Sí">Sí</option>
+                                        <option value="En trámite">En trámite</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-pais-origen">País de Origen *</label>
+                                    <input type="text" id="manual-pais-origen" class="form-input" required placeholder="País donde se fabricó el producto">
+                                </div>
+                            </div>
+
+                            <!-- Campos específicos para vehículos -->
+                            <div class="vehicle-fields" style="display: none;">
+                                <h5><i class="fas fa-car"></i> Información de Vehículos</h5>
+                                <div class="form-grid">
+                                    <div class="form-group">
+                                        <label for="manual-chasis">Chasis</label>
+                                        <input type="text" id="manual-chasis" class="form-input" placeholder="Número de chasis">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="manual-motor">Motor</label>
+                                        <input type="text" id="manual-motor" class="form-input" placeholder="Número de motor">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="manual-color">Color</label>
+                                        <input type="text" id="manual-color" class="form-input" placeholder="Color del vehículo">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="manual-cilindraje">Cilindraje</label>
+                                        <input type="number" id="manual-cilindraje" class="form-input" placeholder="1600" step="0.1">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="manual-descripcion-complementaria">Descripción Complementaria</label>
+                                <textarea id="manual-descripcion-complementaria" class="form-input" rows="3" placeholder="Información adicional sobre el producto"></textarea>
+                            </div>
+                        </div>
+
+                        <!-- Continúa en la siguiente parte... -->
+
+                        <!-- 9. CONTENEDORES -->
+                        <div class="form-group-section">
+                            <h4><i class="fas fa-cubes"></i> 9. Contenedor(es)</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="manual-numero-contenedor">Número de Contenedor</label>
+                                    <input type="text" id="manual-numero-contenedor" class="form-input" placeholder="ABCD1234567">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-tipo-contenedor">Tipo de Contenedor</label>
+                                    <select id="manual-tipo-contenedor" class="form-input">
+                                        <option value="">Seleccionar...</option>
+                                        <option value="20' Dry">20' Dry</option>
+                                        <option value="40' Dry">40' Dry</option>
+                                        <option value="40' High Cube">40' High Cube</option>
+                                        <option value="20' Refrigerado">20' Refrigerado</option>
+                                        <option value="40' Refrigerado">40' Refrigerado</option>
+                                        <option value="Open Top">Open Top</option>
+                                        <option value="Flat Rack">Flat Rack</option>
+                                        <option value="No aplica">No aplica</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-sello">Sello</label>
+                                    <input type="text" id="manual-sello" class="form-input" placeholder="Número de sello">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-numero-placa">Número de Placa</label>
+                                    <input type="text" id="manual-numero-placa" class="form-input" placeholder="Para transporte terrestre">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-peso-contenedor">Peso (kg)</label>
+                                    <input type="number" id="manual-peso-contenedor" class="form-input" placeholder="0" step="0.01">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-organica">Orgánica</label>
+                                    <select id="manual-organica" class="form-input">
+                                        <option value="">No aplica</option>
+                                        <option value="Sí">Sí</option>
+                                        <option value="No">No</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Campos específicos para alcoholes -->
+                            <div class="alcohol-fields" style="display: none;">
+                                <h5><i class="fas fa-wine-bottle"></i> Información de Alcoholes</h5>
+                                <div class="form-grid">
+                                    <div class="form-group">
+                                        <label for="manual-grado-alcohol">Grado de Alcohol (%)</label>
+                                        <input type="number" id="manual-grado-alcohol" class="form-input" placeholder="0.0" step="0.1" min="0" max="100">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="manual-serie">Serie</label>
+                                        <input type="text" id="manual-serie" class="form-input" placeholder="Número de serie">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="manual-precio-menor">Precio al Por Menor (RD$)</label>
+                                        <input type="number" id="manual-precio-menor" class="form-input" placeholder="0.00" step="0.01">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 10. DOCUMENTOS DE RESPALDO -->
+                        <div class="form-group-section">
+                            <h4><i class="fas fa-file-invoice"></i> 10. Documentos de Respaldo</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="manual-tipo-documento">Tipo de Documento *</label>
+                                    <select id="manual-tipo-documento" class="form-input" required>
+                                        <option value="">Seleccionar...</option>
+                                        <option value="Factura Comercial">Factura Comercial</option>
+                                        <option value="Bill of Lading">Bill of Lading</option>
+                                        <option value="Airway Bill">Airway Bill</option>
+                                        <option value="Packing List">Packing List</option>
+                                        <option value="Certificado de Origen">Certificado de Origen</option>
+                                        <option value="Certificado Fitosanitario">Certificado Fitosanitario</option>
+                                        <option value="Certificado Sanitario">Certificado Sanitario</option>
+                                        <option value="Permiso de Importación">Permiso de Importación</option>
+                                        <option value="Licencia de Importación">Licencia de Importación</option>
+                                        <option value="Seguro de Transporte">Seguro de Transporte</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-numero-documento">Número del Documento *</label>
+                                    <input type="text" id="manual-numero-documento" class="form-input" required placeholder="Número o referencia del documento">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-fecha-documento">Fecha del Documento *</label>
+                                    <input type="date" id="manual-fecha-documento" class="form-input" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-monto-documento">Monto US$</label>
+                                    <input type="number" id="manual-monto-documento" class="form-input" placeholder="0.00" step="0.01">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-pais-documento">País</label>
+                                    <input type="text" id="manual-pais-documento" class="form-input" placeholder="País emisor del documento">
+                                </div>
+                                <div class="form-group full-width">
+                                    <label for="manual-observacion-documento">Observación del Documento</label>
+                                    <input type="text" id="manual-observacion-documento" class="form-input" placeholder="Observaciones adicionales">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 12. VALORACIÓN ADUANERA -->
+                        <div class="form-group-section">
+                            <h4><i class="fas fa-calculator"></i> 12. Valoración Aduanera</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="manual-tasa-cambio">Tasa de Cambio (RD$/USD) *</label>
+                                    <input type="number" id="manual-tasa-cambio" class="form-input" required placeholder="60.00" step="0.01">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-flete">Flete (USD)</label>
+                                    <input type="number" id="manual-flete" class="form-input" placeholder="0.00" step="0.01">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-valor-fob-total">Valor FOB Total (USD) *</label>
+                                    <input type="number" id="manual-valor-fob-total" class="form-input" required placeholder="0.00" step="0.01">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-otros-gastos">Otros Gastos (USD)</label>
+                                    <input type="number" id="manual-otros-gastos" class="form-input" placeholder="0.00" step="0.01">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-seguro">Seguro (USD)</label>
+                                    <input type="number" id="manual-seguro" class="form-input" placeholder="0.00" step="0.01">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-valor-cif-usd">Valor CIF Total (USD)</label>
+                                    <input type="number" id="manual-valor-cif-usd" class="form-input" readonly placeholder="Se calcula automáticamente">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-valor-cif-rd">Valor CIF Total (RD$)</label>
+                                    <input type="number" id="manual-valor-cif-rd" class="form-input" readonly placeholder="Se calcula automáticamente">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 13. PESO DE LA MERCANCÍA -->
+                        <div class="form-group-section">
+                            <h4><i class="fas fa-weight-hanging"></i> 13. Peso de la Mercancía</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="manual-peso-bruto">Peso Bruto (kg) *</label>
+                                    <input type="number" id="manual-peso-bruto" class="form-input" required placeholder="0.000" step="0.001">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-peso-neto">Peso Neto (kg) *</label>
+                                    <input type="number" id="manual-peso-neto" class="form-input" required placeholder="0.000" step="0.001">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 14. OBSERVACIÓN -->
+                        <div class="form-group-section">
+                            <h4><i class="fas fa-comment-alt"></i> 14. Observación</h4>
+                            <div class="form-group">
+                                <label for="manual-observacion-general">Comentarios del Importador o Aduanas</label>
+                                <textarea id="manual-observacion-general" class="form-input" rows="4" placeholder="Observaciones generales, comentarios especiales o instrucciones adicionales"></textarea>
+                            </div>
+                        </div>
+
+                        <!-- 15. DATOS COMPLEMENTARIOS -->
+                        <div class="form-group-section">
+                            <h4><i class="fas fa-plus-circle"></i> 15. Datos Complementarios (CIF > US$2,000)</h4>
+                            <div class="complementary-data-toggle">
+                                <label class="checkbox-container">
+                                    <input type="checkbox" id="manual-datos-complementarios" onchange="toggleComplementaryData(this.checked)">
+                                    <span class="checkmark"></span>
+                                    ¿El valor CIF es mayor a US$2,000? (Requerido datos complementarios)
+                                </label>
+                            </div>
+                            
+                            <div id="complementary-fields" class="complementary-fields" style="display: none;">
+                                <div class="form-grid">
+                                    <div class="form-group">
+                                        <label for="manual-numero-factura">Número de Factura</label>
+                                        <input type="text" id="manual-numero-factura" class="form-input" placeholder="Número de la factura">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="manual-fecha-factura">Fecha de Factura</label>
+                                        <input type="date" id="manual-fecha-factura" class="form-input">
+                                    </div>
+                                </div>
+                                
+                                <h5><i class="fas fa-question-circle"></i> Preguntas sobre Valoración</h5>
+                                <div class="valoracion-questions">
+                                    <div class="question-item">
+                                        <label>¿Se pagaron comisiones o gastos de correduría?</label>
+                                        <select id="manual-comisiones" class="form-input">
+                                            <option value="">Seleccionar...</option>
+                                            <option value="Sí">Sí</option>
+                                            <option value="No">No</option>
+                                        </select>
+                                        <input type="number" id="manual-monto-comisiones" class="form-input" placeholder="Monto (USD)" style="display: none;">
+                                    </div>
+                                    
+                                    <div class="question-item">
+                                        <label>¿Se pagó asistencia técnica o regalías?</label>
+                                        <select id="manual-asistencia" class="form-input">
+                                            <option value="">Seleccionar...</option>
+                                            <option value="Sí">Sí</option>
+                                            <option value="No">No</option>
+                                        </select>
+                                        <input type="number" id="manual-monto-asistencia" class="form-input" placeholder="Monto (USD)" style="display: none;">
+                                    </div>
+                                    
+                                    <div class="question-item">
+                                        <label>¿Se pagaron cánones o derechos de licencia?</label>
+                                        <select id="manual-canones" class="form-input">
+                                            <option value="">Seleccionar...</option>
+                                            <option value="Sí">Sí</option>
+                                            <option value="No">No</option>
+                                        </select>
+                                        <input type="number" id="manual-monto-canones" class="form-input" placeholder="Monto (USD)" style="display: none;">
+                                    </div>
+                                    
+                                    <div class="question-item">
+                                        <label>¿Existe vinculación entre comprador y vendedor?</label>
+                                        <select id="manual-vinculacion" class="form-input">
+                                            <option value="">Seleccionar...</option>
+                                            <option value="Sí">Sí</option>
+                                            <option value="No">No</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="manual-determinacion-valor">Determinación de Valor Aduanero</label>
+                                    <textarea id="manual-determinacion-valor" class="form-input" rows="3" placeholder="Explicación del método de valoración utilizado y cálculos adicionales"></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- IMPUESTOS Y CÁLCULOS FINALES -->
+                        <div class="form-group-section">
+                            <h4><i class="fas fa-percentage"></i> Impuestos y Cálculos</h4>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="manual-dai-porcentaje">DAI (%) *</label>
+                                    <input type="number" id="manual-dai-porcentaje" class="form-input" required placeholder="0" min="0" max="100" step="0.01">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-itbis-porcentaje">ITBIS (%) *</label>
+                                    <input type="number" id="manual-itbis-porcentaje" class="form-input" required placeholder="18" value="18" min="0" max="100" step="0.01">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-selectivo-porcentaje">Impuesto Selectivo (%)</label>
+                                    <input type="number" id="manual-selectivo-porcentaje" class="form-input" placeholder="0" min="0" max="100" step="0.01">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manual-otros-impuestos-porcentaje">Otros Impuestos (%)</label>
+                                    <input type="number" id="manual-otros-impuestos-porcentaje" class="form-input" placeholder="0" min="0" max="100" step="0.01">
+                                </div>
+                            </div>
+
+                            <!-- Cálculos automáticos -->
+                            <div class="tax-calculations-preview">
+                                <h5><i class="fas fa-calculator"></i> Cálculos Preliminares</h5>
+                                <div class="calc-grid">
+                                    <div class="calc-item">
+                                        <span class="calc-label">Base Imponible (CIF):</span>
+                                        <span id="calc-base" class="calc-value">$0.00</span>
+                                    </div>
+                                    <div class="calc-item">
+                                        <span class="calc-label">DAI:</span>
+                                        <span id="calc-dai" class="calc-value">$0.00</span>
+                                    </div>
+                                    <div class="calc-item">
+                                        <span class="calc-label">ITBIS:</span>
+                                        <span id="calc-itbis" class="calc-value">$0.00</span>
+                                    </div>
+                                    <div class="calc-item">
+                                        <span class="calc-label">Selectivo:</span>
+                                        <span id="calc-selectivo" class="calc-value">$0.00</span>
+                                    </div>
+                                    <div class="calc-item total">
+                                        <span class="calc-label">Total Impuestos:</span>
+                                        <span id="calc-total" class="calc-value">$0.00</span>
+                                    </div>
+                                    <div class="calc-item grand-total">
+                                        <span class="calc-label">Total a Pagar:</span>
+                                        <span id="calc-grand-total" class="calc-value">$0.00</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Botones de Acción -->
+                        <div class="form-actions">
+                            <button type="button" class="btn-secondary" onclick="clearManualForm()">
+                                <i class="fas fa-eraser"></i> Limpiar Formulario
+                            </button>
+                            <button type="button" class="btn-primary" onclick="validateManualForm()" id="btn-validate-manual">
+                                <i class="fas fa-check"></i> Validar DUA
+                            </button>
+                            <button type="button" class="btn-success" onclick="saveManualClassification()" id="btn-save-manual" style="display: none;">
+                                <i class="fas fa-file-export"></i> Generar DUA y Exportar
+                            </button>
+                        </div>
+                        
+                        <!-- Validación en tiempo real -->
+                        <div id="manual-validation-summary" class="validation-summary" style="display: none;">
+                            <h4><i class="fas fa-exclamation-triangle"></i> Campos requeridos faltantes:</h4>
+                            <ul id="manual-validation-list"></ul>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Gestión de Planes -->
+            <div id="tab-planes" class="tab-content" style="display: none;">
+                <div class="form-section">
+                    <h3><i class="fas fa-credit-card"></i> Gestión de Plan de Suscripción</h3>
+                    <p>Administra tu plan de suscripción y consumo de tokens</p>
+                    
+                    <!-- Plan Actual -->
+                    <div class="current-plan">
+                        <h4><i class="fas fa-star"></i> Plan Actual</h4>
+                        <div id="plan-actual-info" class="plan-info">
+                            <div class="plan-card current">
+                                <div class="plan-name" id="current-plan-name">Cargando...</div>
+                                <div class="plan-details">
+                                    <div class="plan-price" id="current-plan-price">$0/mes</div>
+                                    <div class="plan-tokens" id="current-plan-tokens">0 tokens/mes</div>
+                                    <div class="plan-devices" id="current-plan-devices">0 dispositivos</div>
+                                </div>
+                                <div class="plan-usage">
+                                    <div class="usage-bar">
+                                        <div class="usage-label">Uso de tokens este mes:</div>
+                                        <div class="progress-bar">
+                                            <div class="progress-fill" id="tokens-progress" style="width: 0%"></div>
+                                        </div>
+                                        <div class="usage-numbers" id="tokens-usage-text">0 / 0 tokens</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Planes Disponibles -->
+                    <div class="available-plans">
+                        <h4><i class="fas fa-shopping-cart"></i> Cambiar Plan</h4>
+                        <p>Selecciona un nuevo plan de suscripción. Los tokens se resetearán al cambiar.</p>
+                        <div id="planes-grid" class="plans-grid">
+                            <div class="loading-plans">
+                                <i class="fas fa-spinner fa-spin"></i>
+                                Cargando planes disponibles...
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Historial de Consumo -->
+                    <div class="consumption-history">
+                        <h4><i class="fas fa-chart-line"></i> Últimas Clasificaciones</h4>
+                        <div id="consumo-history" class="history-list">
+                            <div class="loading-history">
+                                <i class="fas fa-spinner fa-spin"></i>
+                                Cargando historial...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Loading -->
+            <div id="loading" class="loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>Procesando clasificación arancelaria...</p>
+            </div>
+
+            <!-- Results -->
+            <div id="results" class="results" style="display: none;">
+                <div class="results-header">
+                    <h3><i class="fas fa-check-circle"></i> Resultado de la Clasificación</h3>
+                    <div class="results-actions">
+                        <button class="btn-secondary" onclick="showEditForm()" id="btn-edit-result">
+                            <i class="fas fa-edit"></i>
+                            Editar Campos
+                        </button>
+                        <button class="btn-primary" onclick="showExportOptions()" id="btn-export" style="display: none;">
+                            <i class="fas fa-download"></i>
+                            Exportar XML
+                        </button>
+                    </div>
+                </div>
+                <div id="results-content"></div>
+            </div>
+
+            <!-- Edit Form Modal -->
+            <div id="edit-modal" class="modal" style="display: none;">
+                <div class="modal-content edit-modal-content">
+                    <div class="modal-header">
+                        <h2><i class="fas fa-edit"></i> Editar Clasificación Arancelaria</h2>
+                        <p>Complete y verifique todos los campos antes de exportar</p>
+                        <button class="btn-close" onclick="hideEditForm()">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="modal-body">
+                        <form id="edit-form" class="edit-form">
+                            <!-- Campos Obligatorios -->
+                            <div class="form-section">
+                                <h4><i class="fas fa-star required-star"></i> Campos Obligatorios</h4>
+                                
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="edit-hs-code" class="required">
+                                            Código HS (Partida Arancelaria)
+                                        </label>
+                                        <input type="text" id="edit-hs-code" class="form-input" required 
+                                               pattern="[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]{2}" 
+                                               placeholder="0000.00.00.00">
+                                        <small>Formato: 0000.00.00.00</small>
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="edit-description" class="required">
+                                            Descripción Arancelaria
+                                        </label>
+                                        <textarea id="edit-description" class="form-input" required 
+                                                  rows="3" placeholder="Descripción oficial de la partida arancelaria"></textarea>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="edit-dai" class="required">
+                                            DAI (%) - Derecho Arancelario de Importación
+                                        </label>
+                                        <input type="number" id="edit-dai" class="form-input" required 
+                                               min="0" max="100" step="0.01" placeholder="0.00">
+                                        <small>Porcentaje del DAI aplicable</small>
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="edit-itbis" class="required">
+                                            ITBIS (%) - Impuesto sobre Transferencias
+                                        </label>
+                                        <input type="number" id="edit-itbis" class="form-input" required 
+                                               min="0" max="100" step="0.01" placeholder="18.00">
+                                        <small>Porcentaje del ITBIS aplicable</small>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="edit-product-name" class="required">
+                                            Nombre del Producto
+                                        </label>
+                                        <input type="text" id="edit-product-name" class="form-input" required 
+                                               placeholder="Nombre comercial del producto">
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="edit-origin" class="required">
+                                            País de Origen
+                                        </label>
+                                        <input type="text" id="edit-origin" class="form-input" required 
+                                               placeholder="País donde se fabricó el producto">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Campos Opcionales -->
+                            <div class="form-section">
+                                <h4><i class="fas fa-plus-circle optional-icon"></i> Campos Opcionales</h4>
+                                
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="edit-brand">
+                                            Marca
+                                        </label>
+                                        <input type="text" id="edit-brand" class="form-input" 
+                                               placeholder="Marca del producto">
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="edit-model">
+                                            Modelo
+                                        </label>
+                                        <input type="text" id="edit-model" class="form-input" 
+                                               placeholder="Modelo específico">
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="edit-material">
+                                            Material Principal
+                                        </label>
+                                        <input type="text" id="edit-material" class="form-input" 
+                                               placeholder="Material de fabricación">
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="edit-use">
+                                            Uso/Aplicación
+                                        </label>
+                                        <input type="text" id="edit-use" class="form-input" 
+                                               placeholder="Uso principal del producto">
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="edit-weight">
+                                            Peso (kg)
+                                        </label>
+                                        <input type="number" id="edit-weight" class="form-input" 
+                                               min="0" step="0.001" placeholder="0.000">
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="edit-dimensions">
+                                            Dimensiones
+                                        </label>
+                                        <input type="text" id="edit-dimensions" class="form-input" 
+                                               placeholder="Largo x Ancho x Alto">
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="edit-value">
+                                            Valor FOB (USD)
+                                        </label>
+                                        <input type="number" id="edit-value" class="form-input" 
+                                               min="0" step="0.01" placeholder="0.00">
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="edit-quantity">
+                                            Cantidad
+                                        </label>
+                                        <input type="number" id="edit-quantity" class="form-input" 
+                                               min="1" step="1" placeholder="1">
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group full-width">
+                                        <label for="edit-observations">
+                                            Observaciones Adicionales
+                                        </label>
+                                        <textarea id="edit-observations" class="form-input" 
+                                                  rows="3" placeholder="Información adicional relevante"></textarea>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Validación Visual -->
+                            <div class="validation-summary" id="validation-summary" style="display: none;">
+                                <div class="validation-header">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                    <span>Campos requeridos faltantes:</span>
+                                </div>
+                                <ul id="validation-list"></ul>
+                            </div>
+
+                            <!-- Acciones -->
+                            <div class="form-actions">
+                                <button type="button" class="btn-secondary" onclick="hideEditForm()">
+                                    <i class="fas fa-times"></i>
+                                    Cancelar
+                                </button>
+                                <button type="button" class="btn-primary" onclick="validateAndSave()">
+                                    <i class="fas fa-save"></i>
+                                    Guardar y Habilitar Exportación
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Error -->
+            <div id="error" class="error" style="display: none;">
+                <div class="error-content">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <h4>Error en la clasificación</h4>
+                    <p id="error-message"></p>
+                    <button class="btn-secondary" onclick="hideError()">Cerrar</button>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>&copy; 2025 Clasificador Arancelario RD - Basado en la Séptima Enmienda del Sistema Armonizado</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
