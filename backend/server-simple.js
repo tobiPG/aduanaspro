@@ -13,6 +13,7 @@ const authRoutes = require('./routes/auth');
 const cleanupRoutes = require('./routes/cleanup');
 const { verificarAuth, extraerDeviceFingerprint, extraerIP } = require('./middleware/auth');
 const CleanupService = require('./services/cleanupService');
+const { generarXmlImportDUA } = require('./utils/xmlGenerator');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -62,33 +63,49 @@ const upload = multer({
   }
 });
 
-// Función para procesar con el asistente de OpenAI
+// Función para procesar con la API de Chat Completions usando Prompt almacenado
 async function clasificarConAsistente(contenido, soloHS = false) {
   try {
     console.log('🔄 Iniciando clasificación...');
     
-    // Crear un hilo de conversación
-    const thread = await openai.beta.threads.create();
+    // Obtener el Prompt ID desde las variables de entorno
+    const promptId = process.env.OPENAI_PROMPT_ID;
     
-    // Preparar el mensaje según si es solo HS o completo
-    const params = soloHS ? { solo_hs: true } : { solo_hs: false };
-    const mensaje = `producto: ${contenido}\nparams: ${JSON.stringify(params)}`;
+    if (!promptId) {
+      throw new Error('OPENAI_PROMPT_ID no está configurado en .env');
+    }
     
-    // Enviar mensaje al hilo
-    await openai.beta.threads.messages.create(thread.id, {
-      role: 'user',
-      content: mensaje
-    });
+    // Construir el mensaje del usuario (el system prompt viene del Prompt almacenado)
+    const userMessage = `Clasifica el siguiente producto según el Sistema Armonizado y devuelve la respuesta en formato JSON:
+
+${contenido}
+
+${soloHS ? 'MODO: Solo devuelve el código HS en formato JSON { "hs": "XXXX.XX.XX.XX" }' : 'MODO: Devuelve la clasificación completa con todos los campos en formato JSON válido'}`;
     
-    // Ejecutar el asistente con retry para rate limits
-    let run;
+    // Llamar a la API de Chat Completions usando el Prompt almacenado
+    let completion;
     let retryCount = 0;
     const maxRetries = 3;
     
     while (retryCount < maxRetries) {
       try {
-        run = await openai.beta.threads.runs.create(thread.id, {
-          assistant_id: process.env.ASSISTANT_ID
+        completion = await openai.chat.completions.create({
+          model: process.env.OPENAI_MODEL || 'gpt-4o',
+          store: true,
+          metadata: {
+            prompt_id: promptId,
+            mode: soloHS ? 'simplified' : 'complete'
+          },
+          messages: [
+            { 
+              role: 'system', 
+              content: `prompt:${promptId}` 
+            },
+            { role: 'user', content: userMessage }
+          ],
+          temperature: 0.3,
+          max_tokens: 4000,
+          response_format: { type: 'json_object' }
         });
         break;
       } catch (error) {
@@ -103,138 +120,89 @@ async function clasificarConAsistente(contenido, soloHS = false) {
       }
     }
     
-    // Esperar a que termine la ejecución
-    let runStatus;
-    let attempts = 0;
-    const maxAttempts = 120; // 2 minutos máximo
+    // Obtener información de uso de tokens
+    const tokensUsados = {
+      input: completion.usage?.prompt_tokens || 0,
+      output: completion.usage?.completion_tokens || 0
+    };
     
-    do {
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Esperar 2s entre checks
+    console.log(`📊 Tokens utilizados - Input: ${tokensUsados.input}, Output: ${tokensUsados.output}, Total: ${tokensUsados.input + tokensUsados.output}`);
+    
+    // Obtener la respuesta
+    const respuesta = completion.choices[0]?.message?.content;
+    
+    if (!respuesta) {
+      throw new Error('No se recibió respuesta del modelo');
+    }
+    
+    console.log('📝 Respuesta completa del modelo:');
+    console.log('---INICIO---');
+    console.log(respuesta);
+    console.log('---FIN---');
+    
+    try {
+      // Intentar parsear como JSON
+      const resultado = JSON.parse(respuesta);
+      console.log('✅ Clasificación completada exitosamente');
+      return { 
+        resultado: resultado, 
+        tokens: tokensUsados 
+      };
+    } catch (parseError) {
+      console.log('❌ Error al parsear JSON directo:', parseError.message);
+      
+      // Limpiar la respuesta de markdown y espacios
+      let cleanResponse = respuesta.trim();
+      
+      // Remover bloques de código markdown
+      cleanResponse = cleanResponse.replace(/```json\s*/g, '').replace(/```\s*/g, '');
       
       try {
-        runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
-      } catch (error) {
-        if (error.status === 429) {
-          console.log('⏳ Rate limit en status check. Esperando 5s...');
-          await new Promise(resolve => setTimeout(resolve, 5000));
-          continue;
-        }
-        throw error;
-      }
-      
-      attempts++;
-      
-      if (attempts % 10 === 0) {
-        console.log(`⏳ Esperando respuesta... (${attempts * 2}s)`);
-      }
-      
-    } while ((runStatus.status === 'in_progress' || runStatus.status === 'queued') && attempts < maxAttempts);
-    
-    if (runStatus.status === 'completed') {
-      // Obtener la respuesta
-      const messages = await openai.beta.threads.messages.list(thread.id);
-      const lastMessage = messages.data[0];
-      
-      // Obtener información de uso de tokens del run
-      let tokensUsados = { input: 0, output: 0 };
-      try {
-        if (runStatus.usage) {
-          tokensUsados.input = runStatus.usage.prompt_tokens || 0;
-          tokensUsados.output = runStatus.usage.completion_tokens || 0;
-          console.log(`📊 Tokens utilizados - Input: ${tokensUsados.input}, Output: ${tokensUsados.output}, Total: ${tokensUsados.input + tokensUsados.output}`);
-        }
-      } catch (usageError) {
-        console.log('⚠️ No se pudo obtener información de tokens del run, usando estimación');
-        // Fallback a estimación
-        tokensUsados.input = Math.ceil(contenido.length / 4);
-        tokensUsados.output = 500; // Estimación conservadora
-      }
-      
-      if (lastMessage.content && lastMessage.content[0] && lastMessage.content[0].text) {
-        const respuesta = lastMessage.content[0].text.value;
-        console.log('📝 Respuesta completa del asistente:');
-        console.log('---INICIO---');
-        console.log(respuesta);
-        console.log('---FIN---');
+        const resultado = JSON.parse(cleanResponse);
+        console.log('✅ Clasificación completada (JSON limpio)');
+        return { 
+          resultado: resultado, 
+          tokens: tokensUsados 
+        };
+      } catch (cleanError) {
+        console.log('❌ Error al parsear JSON limpio:', cleanError.message);
         
-        // Ajustar tokens de salida con la respuesta real si no tenemos datos del run
-        if (!runStatus.usage) {
-          tokensUsados.output = Math.ceil(respuesta.length / 4);
-        }
-        
-        try {
-          // Intentar parsear como JSON
-          const resultado = JSON.parse(respuesta);
-          console.log('✅ Clasificación completada exitosamente');
-          return { 
-            resultado: resultado, 
-            tokens: tokensUsados 
-          };
-        } catch (parseError) {
-          console.log('❌ Error al parsear JSON directo:', parseError.message);
-          
-          // Limpiar la respuesta de markdown y espacios
-          let cleanResponse = respuesta.trim();
-          
-          // Remover bloques de código markdown
-          cleanResponse = cleanResponse.replace(/```json\s*/g, '').replace(/```\s*/g, '');
-          
+        // Buscar array JSON [...]
+        const arrayMatch = cleanResponse.match(/\[[\s\S]*\]/);
+        if (arrayMatch) {
+          console.log('🔍 Array JSON encontrado:');
+          console.log(arrayMatch[0].substring(0, 200) + '...');
           try {
-            const resultado = JSON.parse(cleanResponse);
-            console.log('✅ Clasificación completada (JSON limpio)');
+            const resultado = JSON.parse(arrayMatch[0]);
+            console.log('✅ Clasificación completada (Array extraído)');
             return { 
               resultado: resultado, 
               tokens: tokensUsados 
             };
-          } catch (cleanError) {
-            console.log('❌ Error al parsear JSON limpio:', cleanError.message);
-            
-            // Buscar array JSON [...]
-            const arrayMatch = cleanResponse.match(/\[[\s\S]*\]/);
-            if (arrayMatch) {
-              console.log('🔍 Array JSON encontrado:');
-              console.log(arrayMatch[0].substring(0, 200) + '...');
-              try {
-                const resultado = JSON.parse(arrayMatch[0]);
-                console.log('✅ Clasificación completada (Array extraído)');
-                return { 
-                  resultado: resultado, 
-                  tokens: tokensUsados 
-                };
-              } catch (arrayError) {
-                console.log('❌ Error al parsear array JSON:', arrayError.message);
-              }
-            }
-            
-            // Si no es array, buscar objeto JSON {...}
-            const objectMatch = cleanResponse.match(/\{[\s\S]*\}/);
-            if (objectMatch) {
-              console.log('🔍 Objeto JSON encontrado:');
-              console.log(objectMatch[0].substring(0, 200) + '...');
-              try {
-                const resultado = JSON.parse(objectMatch[0]);
-                console.log('✅ Clasificación completada (Objeto extraído)');
-                return { 
-                  resultado: resultado, 
-                  tokens: tokensUsados 
-                };
-              } catch (objectError) {
-                console.log('❌ Error al parsear objeto JSON:', objectError.message);
-              }
-            }
-            
-            throw new Error(`Respuesta no es JSON válido. Respuesta recibida: ${respuesta.substring(0, 500)}...`);
+          } catch (arrayError) {
+            console.log('❌ Error al parsear array JSON:', arrayError.message);
           }
         }
+        
+        // Si no es array, buscar objeto JSON {...}
+        const objectMatch = cleanResponse.match(/\{[\s\S]*\}/);
+        if (objectMatch) {
+          console.log('🔍 Objeto JSON encontrado:');
+          console.log(objectMatch[0].substring(0, 200) + '...');
+          try {
+            const resultado = JSON.parse(objectMatch[0]);
+            console.log('✅ Clasificación completada (Objeto extraído)');
+            return { 
+              resultado: resultado, 
+              tokens: tokensUsados 
+            };
+          } catch (objectError) {
+            console.log('❌ Error al parsear objeto JSON:', objectError.message);
+          }
+        }
+        
+        throw new Error(`Respuesta no es JSON válido. Respuesta recibida: ${respuesta.substring(0, 500)}...`);
       }
-    } else if (attempts >= maxAttempts) {
-      throw new Error('Timeout: La clasificación tomó demasiado tiempo');
-    } else if (runStatus.status === 'failed') {
-      // Obtener más detalles del error
-      console.log('❌ Detalles del error:', JSON.stringify(runStatus, null, 2));
-      throw new Error(`Error en la ejecución: ${runStatus.status}. Motivo: ${runStatus.last_error?.message || 'Sin detalles adicionales'}`);
-    } else {
-      throw new Error(`Error en la ejecución: ${runStatus.status}`);
     }
     
   } catch (error) {
@@ -345,8 +313,8 @@ app.post('/api/cambiar-plan', verificarAuth, async (req, res) => {
   }
 });
 
-// Clasificar por texto (protegido con autenticación)
-app.post('/clasificar', verificarAuth, async (req, res) => {
+// Clasificar por texto (modo demo - sin autenticación)
+app.post('/clasificar', async (req, res) => {
   const startTime = new Date();
   
   try {
@@ -358,16 +326,7 @@ app.post('/clasificar', verificarAuth, async (req, res) => {
       });
     }
     
-    // Verificar límites de tokens antes de procesar
-    const verificacionTokens = await TokenService.verificarLimiteTokens(req.auth.empresa_id, 5000); // Pre-chequeo con 5k tokens
-    if (!verificacionTokens.valid) {
-      return res.status(403).json({
-        error: verificacionTokens.error,
-        mensaje: verificacionTokens.mensaje
-      });
-    }
-    
-    console.log(`📝 Nueva clasificación: ${producto.substring(0, 50)}... (Usuario: ${req.auth.usuario_id})`);
+    console.log(`📝 Nueva clasificación (modo demo): ${producto.substring(0, 50)}...`);
     
     const clasificacionResult = await clasificarConAsistente(producto, solo_hs);
     
@@ -375,43 +334,31 @@ app.post('/clasificar', verificarAuth, async (req, res) => {
     const inputTokens = clasificacionResult.tokens.input;
     const outputTokens = clasificacionResult.tokens.output;
     
-    // Verificar nuevamente con los tokens reales consumidos
-    const verificacionFinal = await TokenService.verificarLimiteTokens(req.auth.empresa_id, inputTokens + outputTokens);
-    if (!verificacionFinal.valid) {
-      return res.status(403).json({
-        error: verificacionFinal.error,
-        mensaje: `Operación cancelada: ${verificacionFinal.mensaje}`,
-        tokens_requeridos: inputTokens + outputTokens
-      });
-    }
-    
-    // Registrar consumo de tokens reales
-    const registroConsumo = await TokenService.registrarConsumo(
-      req.auth.empresa_id,
-      req.auth.usuario_id,
-      inputTokens,
-      outputTokens,
-      'clasificacion_texto',
-      1
-    );
-    
     const duration = (new Date() - startTime) / 1000;
     console.log(`⚡ Clasificación completada en ${duration.toFixed(1)}s`);
+    
+    // Generar XML si no es modo solo_hs
+    let xmlDUA = null;
+    if (!solo_hs && clasificacionResult.resultado) {
+      try {
+        xmlDUA = generarXmlImportDUA(clasificacionResult.resultado);
+        console.log('📄 XML ImportDUA generado exitosamente');
+      } catch (xmlError) {
+        console.error('⚠️ Error generando XML:', xmlError.message);
+      }
+    }
     
     res.json({
       success: true,
       data: clasificacionResult.resultado,
+      xml: xmlDUA,
       timestamp: new Date().toISOString(),
       duration: `${duration.toFixed(1)}s`,
       tokens_info: {
         input_tokens: inputTokens,
         output_tokens: outputTokens,
         total_tokens: inputTokens + outputTokens
-      },
-      consumo: registroConsumo.success ? {
-        orden_id: registroConsumo.orden_id,
-        total_tokens: registroConsumo.total_tokens
-      } : null
+      }
     });
     
   } catch (error) {
@@ -426,8 +373,8 @@ app.post('/clasificar', verificarAuth, async (req, res) => {
   }
 });
 
-// Endpoint para clasificar archivos (protegido con autenticación)
-app.post('/clasificar-archivo', verificarAuth, upload.single('archivo'), async (req, res) => {
+// Endpoint para clasificar archivos (modo demo - sin autenticación)
+app.post('/clasificar-archivo', upload.single('archivo'), async (req, res) => {
   const startTime = new Date();
   
   try {
@@ -441,17 +388,7 @@ app.post('/clasificar-archivo', verificarAuth, upload.single('archivo'), async (
     const { solo_hs } = req.body;
     const soloHS = solo_hs === 'true';
     
-    // Verificar límites de tokens antes de procesar
-    const verificacionTokens = await TokenService.verificarLimiteTokens(req.auth.empresa_id, 10000); // Pre-chequeo con 10k tokens para archivos
-    if (!verificacionTokens.valid) {
-      return res.status(403).json({
-        error: verificacionTokens.error,
-        mensaje: verificacionTokens.mensaje,
-        success: false
-      });
-    }
-    
-    console.log(`📁 Procesando archivo: ${req.file.originalname} (${req.file.mimetype}) - Usuario: ${req.auth.usuario_id}`);
+    console.log(`📁 Procesando archivo (modo demo): ${req.file.originalname} (${req.file.mimetype})`);
     
     let contenido = '';
     
@@ -503,17 +440,6 @@ app.post('/clasificar-archivo', verificarAuth, upload.single('archivo'), async (
     const inputTokens = clasificacionResult.tokens.input;
     const outputTokens = clasificacionResult.tokens.output;
     
-    // Verificar nuevamente con los tokens reales consumidos
-    const verificacionFinal = await TokenService.verificarLimiteTokens(req.auth.empresa_id, inputTokens + outputTokens);
-    if (!verificacionFinal.valid) {
-      return res.status(403).json({
-        error: verificacionFinal.error,
-        mensaje: `Operación cancelada: ${verificacionFinal.mensaje}`,
-        tokens_requeridos: inputTokens + outputTokens,
-        success: false
-      });
-    }
-    
     // Determinar número de items procesados
     let itemsCount = 1;
     if (Array.isArray(clasificacionResult.resultado)) {
@@ -525,21 +451,24 @@ app.post('/clasificar-archivo', verificarAuth, upload.single('archivo'), async (
       }
     }
     
-    const registroConsumo = await TokenService.registrarConsumo(
-      req.auth.empresa_id,
-      req.auth.usuario_id,
-      inputTokens,
-      outputTokens,
-      'clasificacion_archivo_' + req.file.mimetype.replace('/', '_'),
-      itemsCount
-    );
-    
     const duration = (new Date() - startTime) / 1000;
     console.log(`⚡ Clasificación de archivo completada en ${duration.toFixed(1)}s`);
+    
+    // Generar XML si no es modo solo_hs
+    let xmlDUA = null;
+    if (!soloHS && clasificacionResult.resultado) {
+      try {
+        xmlDUA = generarXmlImportDUA(clasificacionResult.resultado);
+        console.log('📄 XML ImportDUA generado exitosamente');
+      } catch (xmlError) {
+        console.error('⚠️ Error generando XML:', xmlError.message);
+      }
+    }
     
     res.json({
       success: true,
       data: clasificacionResult.resultado,
+      xml: xmlDUA,
       processing_time: `${duration.toFixed(1)}s`,
       file_info: {
         name: req.file.originalname,
@@ -550,12 +479,7 @@ app.post('/clasificar-archivo', verificarAuth, upload.single('archivo'), async (
         input_tokens: inputTokens,
         output_tokens: outputTokens,
         total_tokens: inputTokens + outputTokens
-      },
-      consumo: registroConsumo.success ? {
-        orden_id: registroConsumo.orden_id,
-        total_tokens: registroConsumo.total_tokens,
-        items_procesados: itemsCount
-      } : null
+      }
     });
     
   } catch (error) {
@@ -623,13 +547,13 @@ async function iniciarServidor() {
     CleanupService.initializeScheduledTasks();
     
     // Iniciar servidor HTTP
-    app.listen(PORT, '0.0.0.0', () => {
+    app.listen(PORT, '127.0.0.1', () => {
       console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
       console.log(`📡 API disponible en http://localhost:${PORT}`);
       console.log(`🌐 Interfaz web en http://localhost:${PORT}/app`);
       console.log(`🏥 Health check: http://localhost:${PORT}/health`);
       console.log(`🔑 OpenAI configurado: ${!!process.env.OPENAI_API_KEY}`);
-      console.log(`🤖 Asistente configurado: ${!!process.env.ASSISTANT_ID}`);
+      console.log(`🤖 Modelo: ${process.env.OPENAI_MODEL || 'gpt-4o'}`);
       console.log('');
       console.log('📋 Endpoints de autenticación:');
       console.log('   POST /api/auth/login - Iniciar sesión');

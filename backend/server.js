@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 const OpenAI = require('openai');
+const { generarXmlImportDUA } = require('./utils/xmlGenerator');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -63,60 +64,97 @@ const upload = multer({
   }
 });
 
-// Función para procesar con el asistente de OpenAI
+// Función para procesar con la API de Chat Completions (migrado desde Assistants)
 async function clasificarConAsistente(contenido, soloHS = false) {
   try {
-    // Crear un hilo de conversación
-    const thread = await openai.beta.threads.create();
+    console.log('🔄 Iniciando clasificación...');
     
-    // Preparar el mensaje según si es solo HS o completo
-    const params = soloHS ? { solo_hs: true } : { solo_hs: false };
-    const mensaje = `producto: ${contenido}\nparams: ${JSON.stringify(params)}`;
+    // Obtener el Prompt ID desde las variables de entorno
+    const promptId = process.env.OPENAI_PROMPT_ID;
     
-    // Enviar mensaje al hilo
-    await openai.beta.threads.messages.create(thread.id, {
-      role: 'user',
-      content: mensaje
-    });
+    if (!promptId) {
+      throw new Error('OPENAI_PROMPT_ID no está configurado en .env');
+    }
     
-    // Ejecutar el asistente
-    const run = await openai.beta.threads.runs.create(thread.id, {
-      assistant_id: process.env.ASSISTANT_ID
-    });
+    // Construir el mensaje del usuario (el system prompt viene del Prompt almacenado)
+    const userMessage = `Clasifica el siguiente producto según el Sistema Armonizado y devuelve la respuesta en formato JSON:
+
+${contenido}
+
+${soloHS ? 'MODO: Solo devuelve el código HS en formato JSON { "hs": "XXXX.XX.XX.XX" }' : 'MODO: Devuelve la clasificación completa con todos los campos en formato JSON válido'}`;
     
-    // Esperar a que termine la ejecución
-    let runStatus;
-    do {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
-    } while (runStatus.status === 'in_progress' || runStatus.status === 'queued');
+    // Llamar a la API de Chat Completions usando el Prompt almacenado
+    let completion;
+    let retryCount = 0;
+    const maxRetries = 3;
     
-    if (runStatus.status === 'completed') {
-      // Obtener la respuesta
-      const messages = await openai.beta.threads.messages.list(thread.id);
-      const lastMessage = messages.data[0];
-      
-      if (lastMessage.content && lastMessage.content[0] && lastMessage.content[0].text) {
-        const respuesta = lastMessage.content[0].text.value;
-        
-        try {
-          // Intentar parsear como JSON
-          return JSON.parse(respuesta);
-        } catch (parseError) {
-          // Si no es JSON válido, buscar JSON dentro del texto
-          const jsonMatch = respuesta.match(/\{.*\}/s);
-          if (jsonMatch) {
-            return JSON.parse(jsonMatch[0]);
-          }
-          throw new Error('Respuesta no es JSON válido');
+    while (retryCount < maxRetries) {
+      try {
+        completion = await openai.chat.completions.create({
+          model: process.env.OPENAI_MODEL || 'gpt-4o',
+          store: true,
+          metadata: {
+            prompt_id: promptId,
+            mode: soloHS ? 'simplified' : 'complete'
+          },
+          messages: [
+            { 
+              role: 'system', 
+              content: `prompt:${promptId}` 
+            },
+            { role: 'user', content: userMessage }
+          ],
+          temperature: 0.3,
+          max_tokens: 4000,
+          response_format: { type: 'json_object' }
+        });
+        break;
+      } catch (error) {
+        if (error.status === 429 && retryCount < maxRetries - 1) {
+          const waitTime = Math.pow(2, retryCount) * 5; // 5s, 10s, 20s
+          console.log(`⏳ Rate limit detectado. Esperando ${waitTime}s antes de reintentar...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+          retryCount++;
+        } else {
+          throw error;
         }
       }
-    } else {
-      throw new Error(`Error en la ejecución: ${runStatus.status}`);
+    }
+    
+    // Obtener información de uso de tokens
+    const tokensUsados = {
+      input: completion.usage?.prompt_tokens || 0,
+      output: completion.usage?.completion_tokens || 0
+    };
+    
+    console.log(`📊 Tokens utilizados - Input: ${tokensUsados.input}, Output: ${tokensUsados.output}, Total: ${tokensUsados.input + tokensUsados.output}`);
+    
+    // Obtener la respuesta
+    const respuesta = completion.choices[0]?.message?.content;
+    
+    if (!respuesta) {
+      throw new Error('No se recibió respuesta del modelo');
+    }
+    
+    console.log('📝 Respuesta del modelo recibida');
+    
+    try {
+      // Intentar parsear como JSON
+      const resultado = JSON.parse(respuesta);
+      console.log('✅ Clasificación completada exitosamente');
+      return resultado;
+    } catch (parseError) {
+      console.log('❌ Error al parsear JSON:', parseError.message);
+      // Si no es JSON válido, buscar JSON dentro del texto
+      const jsonMatch = respuesta.match(/\{.*\}/s);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+      throw new Error('Respuesta no es JSON válido');
     }
     
   } catch (error) {
-    console.error('Error al clasificar:', error);
+    console.error('❌ Error al clasificar:', error);
     throw error;
   }
 }
@@ -245,7 +283,7 @@ app.use((error, req, res, next) => {
 });
 
 // Iniciar servidor
-app.listen(PORT, () => {
+app.listen(PORT, '127.0.0.1', () => {
   console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
   console.log(`📡 API disponible en http://localhost:${PORT}`);
   console.log(`🏥 Health check: http://localhost:${PORT}/health`);

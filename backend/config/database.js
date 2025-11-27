@@ -2,10 +2,9 @@ const { MongoClient } = require('mongodb');
 
 // Configuración de la base de datos
 const DATABASE_CONFIG = {
-    url: 'mongodb://localhost:27017',
+    url: 'mongodb://127.0.0.1:27017',
     dbName: 'clasificador_arancelario',
     options: {
-        useUnifiedTopology: true,
         maxPoolSize: 10,
         serverSelectionTimeoutMS: 5000,
         socketTimeoutMS: 45000,
