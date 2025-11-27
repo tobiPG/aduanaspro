@@ -1,5 +1,5 @@
 // Configuración de la API
-const API_BASE_URL = 'http://localhost:3000';
+const API_BASE_URL = 'http://localhost:3050';
 
 // Estado global
 let resultadoActual = null;
@@ -8,6 +8,288 @@ let authToken = null;
 let userInfo = null;
 let editedClassification = null; // Para almacenar la clasificación editada
 let currentEditingIndex = null; // Índice del producto que se está editando
+let currentSessionId = null; // ID de sesión para el backend
+
+// Funciones globales para onclick
+window.abrirFormularioEdicion = function() {
+    console.log('✅ Función abrirFormularioEdicion llamada');
+    console.log('📊 resultadoActual:', resultadoActual);
+    showEditForm(0);
+};
+
+window.exportarXML = function() {
+    console.log('✅ Función exportarXML llamada');
+    showExportOptions();
+};
+
+window.guardarJSON = function() {
+    console.log('💾 Guardando JSON editado...');
+    
+    const editor = document.getElementById('json-editor');
+    if (!editor) {
+        showNotification('❌ Editor no encontrado', 'error');
+        return;
+    }
+    
+    const jsonText = editor.value;
+    console.log('📝 JSON del editor:', jsonText);
+    
+    try {
+        // Parsear el JSON para validarlo
+        const parsedJSON = JSON.parse(jsonText);
+        console.log('✅ JSON válido parseado:', parsedJSON);
+        
+        // Actualizar resultadoActual directamente
+        resultadoActual = parsedJSON;
+        editedClassification = parsedJSON;
+        
+        console.log('✅ resultadoActual actualizado:', resultadoActual);
+        
+        showNotification('✅ JSON guardado correctamente. Ahora puedes descargar el XML con estos datos.', 'success');
+        
+        // Opcional: actualizar la visualización de la tarjeta
+        // displayResults(resultadoActual);
+        
+    } catch (error) {
+        console.error('❌ Error parseando JSON:', error);
+        showNotification('❌ Error: JSON inválido. Verifica la sintaxis.', 'error');
+        
+        // Resaltar el error
+        editor.style.borderColor = '#dc3545';
+        setTimeout(() => {
+            editor.style.borderColor = '#667eea';
+        }, 2000);
+    }
+};
+
+// Función para editar campos directamente en la tarjeta
+window.editarCampoDirecto = function(fieldKey, fieldLabel, element) {
+    console.log('✏️ Editando campo:', fieldKey, 'Label:', fieldLabel);
+    
+    // Evitar que se abran múltiples editores
+    if (element.classList.contains('editing')) {
+        console.log('⚠️ Ya está en modo edición');
+        return;
+    }
+    
+    element.classList.add('editing');
+    
+    // Obtener el elemento del valor
+    const valueElement = element.querySelector('.detail-value');
+    const currentValue = valueElement.dataset.originalValue || valueElement.textContent.trim();
+    
+    console.log('Valor actual:', currentValue);
+    
+    // Determinar el tipo de input
+    const isNumeric = fieldKey.includes('dai') || fieldKey.includes('itbis') || fieldKey.includes('valor') || fieldKey.includes('peso') || fieldKey.includes('cantidad');
+    const inputType = isNumeric ? 'number' : 'text';
+    
+    // Guardar el valor original en el dataset
+    valueElement.dataset.originalValue = currentValue;
+    
+    // Crear input y botones usando DOM en lugar de innerHTML para evitar problemas con caracteres especiales
+    const editControls = document.createElement('div');
+    editControls.className = 'edit-controls';
+    editControls.style.cssText = 'display: flex; gap: 5px; align-items: center; width: 100%;';
+    
+    // Crear input
+    const input = document.createElement(isNumeric ? 'input' : 'textarea');
+    input.type = inputType;
+    input.id = `edit-input-${fieldKey}`;
+    input.value = currentValue;
+    input.style.cssText = 'flex: 1; padding: 8px; border: 2px solid #667eea; border-radius: 4px; font-size: 14px; min-height: 40px; resize: vertical;';
+    input.dataset.fieldKey = fieldKey;
+    input.dataset.fieldLabel = fieldLabel;
+    
+    input.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            guardarCampoDirecto(fieldKey, fieldLabel, this);
+        }
+    });
+    
+    // Botón guardar
+    const saveBtn = document.createElement('button');
+    saveBtn.innerHTML = '<i class="fas fa-check"></i> Guardar';
+    saveBtn.style.cssText = 'background: #667eea; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; white-space: nowrap;';
+    saveBtn.onclick = function(e) {
+        e.stopPropagation();
+        guardarCampoDirecto(fieldKey, fieldLabel, input);
+    };
+    
+    // Botón cancelar
+    const cancelBtn = document.createElement('button');
+    cancelBtn.innerHTML = '<i class="fas fa-times"></i>';
+    cancelBtn.style.cssText = 'background: #dc3545; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer;';
+    cancelBtn.onclick = function(e) {
+        e.stopPropagation();
+        cancelarEdicionDirecta(fieldKey, this);
+    };
+    
+    // Agregar elementos al contenedor
+    editControls.appendChild(input);
+    editControls.appendChild(saveBtn);
+    editControls.appendChild(cancelBtn);
+    
+    // Reemplazar el contenido
+    valueElement.innerHTML = '';
+    valueElement.appendChild(editControls);
+    
+    // Enfocar el input
+    setTimeout(() => {
+        input.focus();
+        input.select();
+    }, 50);
+};
+
+// Guardar campo editado directamente - MODIFICA EL JSON
+window.guardarCampoDirecto = function(fieldKey, fieldLabel, parentElement) {
+    console.log('💾 Guardando campo:', fieldKey);
+    console.log('📊 JSON ANTES:', JSON.stringify(resultadoActual, null, 2));
+    
+    const input = document.getElementById(`edit-input-${fieldKey}`);
+    if (!input) {
+        console.error('❌ Input no encontrado');
+        return;
+    }
+    
+    const newValue = input.value;
+    console.log('✏️ Nuevo valor:', newValue);
+    
+    if (!resultadoActual) {
+        showNotification('Error: No hay datos', 'error');
+        return;
+    }
+    
+    // Función para actualizar campos usando path notation (ej: "factura.productos[0].cantidad")
+    function actualizarCampoEnJSON(obj, campo, valor) {
+        console.log(`🔍 Intentando actualizar: ${campo} = ${valor}`);
+        
+        // Si el campo contiene puntos o corchetes, es un path anidado
+        if (campo.includes('.') || campo.includes('[')) {
+            // Parsear el path (ej: "factura.productos[0].cantidad" -> ["factura", "productos", "0", "cantidad"])
+            const parts = campo.split(/\.|\[|\]/).filter(p => p !== '');
+            console.log('📍 Path parts:', parts);
+            
+            let current = obj;
+            
+            // Navegar hasta el penúltimo nivel
+            for (let i = 0; i < parts.length - 1; i++) {
+                const part = parts[i];
+                const nextPart = parts[i + 1];
+                
+                // Si el siguiente es un número, el actual debe ser un array
+                if (!isNaN(nextPart)) {
+                    if (!Array.isArray(current[part])) {
+                        console.log(`❌ ${part} no es un array`);
+                        return false;
+                    }
+                    current = current[part];
+                } else {
+                    // Es un índice de array
+                    if (!isNaN(part)) {
+                        current = current[parseInt(part)];
+                    } else {
+                        if (!current[part]) {
+                            console.log(`❌ No existe ${part} en el path`);
+                            return false;
+                        }
+                        current = current[part];
+                    }
+                }
+            }
+            
+            // Actualizar el valor final
+            const lastPart = parts[parts.length - 1];
+            if (!isNaN(lastPart)) {
+                current[parseInt(lastPart)] = valor;
+            } else {
+                current[lastPart] = valor;
+            }
+            console.log(`✅ Actualizado en path: ${campo} = ${valor}`);
+            return true;
+        }
+        
+        // Búsqueda simple en el nivel actual
+        let actualizado = false;
+        
+        if (obj.hasOwnProperty(campo)) {
+            obj[campo] = valor;
+            actualizado = true;
+            console.log(`✅ Actualizado: ${campo} = ${valor}`);
+        }
+        
+        // Buscar en objetos anidados
+        for (let key in obj) {
+            if (typeof obj[key] === 'object' && obj[key] !== null && !Array.isArray(obj[key])) {
+                if (actualizarCampoEnJSON(obj[key], campo, valor)) {
+                    actualizado = true;
+                }
+            }
+        }
+        
+        return actualizado;
+    }
+    
+    // Actualizar el campo en resultadoActual
+    const updated = actualizarCampoEnJSON(resultadoActual, fieldKey, newValue);
+    
+    // Si no existía, agregarlo en el nivel raíz
+    if (!updated) {
+        resultadoActual[fieldKey] = newValue;
+        console.log(`➕ Campo agregado en raíz: ${fieldKey} = ${newValue}`);
+    }
+    
+    // Marcar como editado
+    resultadoActual.editado = true;
+    resultadoActual.fecha_edicion = new Date().toISOString();
+    
+    console.log('📊 JSON DESPUÉS:', JSON.stringify(resultadoActual, null, 2));
+    console.log(`🔍 Verificación: resultadoActual.${fieldKey} =`, resultadoActual[fieldKey]);
+    
+    // Actualizar el visor JSON completo
+    const jsonViewerDisplay = document.getElementById('json-viewer-display');
+    if (jsonViewerDisplay) {
+        jsonViewerDisplay.textContent = JSON.stringify(resultadoActual, null, 2);
+    }
+    
+    // Actualizar la visualización en pantalla
+    const detailItem = parentElement.closest('.detail-item');
+    if (detailItem) {
+        const valueElement = detailItem.querySelector('.detail-value');
+        if (valueElement) {
+            valueElement.innerHTML = escapeHtml(newValue);
+            valueElement.dataset.originalValue = newValue;
+        }
+        detailItem.classList.remove('editing');
+    }
+    
+    showNotification(`✅ ${fieldLabel} actualizado`, 'success');
+    console.log('===========================================');
+};
+
+// Cancelar edición directa
+window.cancelarEdicionDirecta = function(fieldKey, buttonElement) {
+    console.log('❌ Cancelando edición de:', fieldKey);
+    
+    // Encontrar el detail-item padre
+    const detailItem = buttonElement.closest('.detail-item');
+    if (!detailItem) {
+        console.error('❌ No se encontró el detail-item');
+        return;
+    }
+    
+    // Remover clase de edición
+    detailItem.classList.remove('editing');
+    
+    // Restaurar el valor original
+    const valueElement = detailItem.querySelector('.detail-value');
+    if (valueElement) {
+        const originalValue = valueElement.dataset.originalValue || '';
+        valueElement.innerHTML = escapeHtml(originalValue);
+        console.log('✅ Valor restaurado:', originalValue);
+    }
+};
 
 // Generar device fingerprint
 function getDeviceFingerprint() {
@@ -16,113 +298,24 @@ function getDeviceFingerprint() {
     ctx.textBaseline = 'top';
     ctx.font = '14px Arial';
     ctx.fillText('Device fingerprint', 2, 2);
-    
-    const fingerprint = canvas.toDataURL() + 
-        navigator.userAgent + 
-        navigator.language + 
+
+    const fingerprint = canvas.toDataURL() +
+        navigator.userAgent +
+        navigator.language +
         screen.width + 'x' + screen.height +
         new Date().getTimezoneOffset();
-        
+
     return btoa(fingerprint).slice(0, 32);
 }
 
-// Funciones de autenticación - DESHABILITADAS
-async function checkAuthStatus() {
-    // Acceso directo sin autenticación
-    return true;
-}
-
-function showLoginModal() {
-    // Modal de login deshabilitado
-    console.log('Login deshabilitado - acceso directo');
-}
-
-function hideLoginModal() {
-    document.getElementById('login-modal').style.display = 'none';
-}
-
-// Función para mostrar interfaz principal sin autenticación
-function showMainInterface() {
-    hideLoginModal();
-    
-    // Mostrar la aplicación principal
-    const mainContainer = document.querySelector('.container');
-    if (mainContainer) {
-        mainContainer.style.display = 'block';
-    }
-    
-    // Configurar datos demo
-    setupDemoMode();
-    
-    // Mostrar primera pestaña
-    showTab('texto');
-}
-
-// Configurar modo demo
-function setupDemoMode() {
-    // Simular usuario demo con plan completo
-    userInfo = {
-        nombre: 'Usuario Demo',
-        empresa: 'Sistema Clasificador',
-        plan: {
-            id: 'profesional',
-            nombre: 'Plan Profesional',
-            precio_mensual_usd: 59.99,
-            tokens_mes: 5000,
-            dispositivos_concurrentes: 5
-        },
-        tokens_disponibles: 4567, // Simular tokens consumidos
-        tokens_usados_mes: 433
-    };
-    
-    authToken = 'demo-token';
-    
-    // Actualizar interfaz con datos demo
-    updateUserInterface(userInfo);
-}
-
-// Función simplificada para update user interface
-function updateUserInterface(userData) {
-    const userNameElement = document.querySelector('.user-name');
-    const userCompanyElement = document.querySelector('.user-company');
-    const tokensElement = document.getElementById('tokens-disponibles');
-    const planElement = document.getElementById('user-plan');
-    
-    if (userNameElement) userNameElement.textContent = userData.nombre || 'Usuario Demo';
-    if (userCompanyElement) userCompanyElement.textContent = userData.empresa || 'Sistema Demo';
-    if (tokensElement) tokensElement.textContent = userData.tokens_disponibles?.toLocaleString() || '∞';
-    if (planElement && userData.plan) planElement.textContent = userData.plan.nombre || userData.plan.id || 'Demo';
-    
-    // Actualizar barra de progreso de tokens si existe
-    const progressBar = document.querySelector('.tokens-progress-bar');
-    const progressFill = document.querySelector('.tokens-progress-fill');
-    const progressText = document.querySelector('.tokens-progress-text');
-    
-    if (progressBar && userData.plan && userData.plan.tokens_mes > 0) {
-        const usedPercentage = ((userData.tokens_usados_mes || 0) / userData.plan.tokens_mes) * 100;
-        if (progressFill) progressFill.style.width = `${Math.min(usedPercentage, 100)}%`;
-        if (progressText) progressText.textContent = `${userData.tokens_usados_mes || 0} / ${userData.plan.tokens_mes} tokens usados`;
-    }
-}
-
-function updateUserInterface(data) {
-    // Actualizar información del usuario
-    document.getElementById('user-name').textContent = data.usuario.nombre;
-    document.getElementById('user-plan').textContent = data.plan.id;
-    
-    // Actualizar información de uso
-    const tokensText = `${data.limites.tokens_consumidos.toLocaleString()} / ${data.limites.tokens_limite_mensual.toLocaleString()} tokens`;
-    document.getElementById('tokens-info').textContent = tokensText;
-    
-    const devicesText = `${data.limites.dispositivos_activos} / ${data.limites.dispositivos_limite} dispositivos`;
-    document.getElementById('devices-info').textContent = devicesText;
-    
-    // Mostrar información del usuario
-    document.getElementById('auth-info').style.display = 'flex';
-    hideLoginModal();
-    
-    // Actualizar información de planes si está en esa pestaña
-    updatePlanInfo();
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 async function performLogin() {
@@ -202,24 +395,10 @@ async function logout() {
 // Event listeners para el login
 document.addEventListener('DOMContentLoaded', function() {
     // Acceso directo sin login
-    hideLoginModal();
-    showMainInterface();
+    // hideLoginModal(); // Comentado - función no existe
+    // showMainInterface(); // Comentado - función no existe
     
-    // Enter key en campos de login (por si acaso)
-    document.getElementById('login-email').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            performLogin();
-        }
-    });
-    
-    document.getElementById('login-password').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            performLogin();
-        }
-    });
-    
-    // Verificar autenticación al cargar
-    checkAuthStatus();
+    console.log('✅ DOM cargado - Script inicializado');
 });
 
 // Función para formatear códigos HS con el formato arancelario estándar
@@ -315,6 +494,7 @@ function hideLoading() {
 function showResults(data, tokensInfo = null) {
     hideLoading();
     resultadoActual = data;
+    console.log('📥 Clasificación recibida y guardada en memoria:', resultadoActual);
     
     const resultsDiv = document.getElementById('results');
     const contentDiv = document.getElementById('results-content');
@@ -372,86 +552,41 @@ function showActionButtons() {
         existingActions.remove();
     }
     
-    // Crear nuevo contenedor de acciones
+    // Crear nuevo contenedor de acciones simple
     const actionsContainer = document.createElement('div');
     actionsContainer.id = 'results-actions';
-    actionsContainer.className = 'results-actions-container';
+    actionsContainer.style.cssText = 'margin: 20px 0; padding: 20px; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);';
     
-    // Si hay múltiples productos, mostrar botones para cada uno
-    if (Array.isArray(resultadoActual) && resultadoActual.length > 1) {
-        let buttonsHTML = '<h4><i class="fas fa-edit"></i> Editar Productos Individualmente</h4>';
-        buttonsHTML += '<div class="individual-edit-buttons">';
-        
-        resultadoActual.forEach((producto, index) => {
-            const productName = producto.descripcion_comercial || producto.item_name || `Producto ${index + 1}`;
-            buttonsHTML += `
-                <div class="product-edit-item">
-                    <div class="product-info">
-                        <span class="product-number">Producto ${index + 1}</span>
-                        <span class="product-name">${productName}</span>
-                        <span class="product-hs">${formatearCodigoHS(producto.hs || 'N/A')}</span>
-                    </div>
-                    <button class="btn-edit-individual" data-product-index="${index}">
-                        <i class="fas fa-edit"></i> Editar
-                    </button>
-                </div>
-            `;
-        });
-        
-        buttonsHTML += '</div>';
-        buttonsHTML += `
-            <div class="global-actions">
-                <button id="btn-export-all" class="btn-success export-btn" style="display: none;">
-                    <i class="fas fa-download"></i> Exportar Todos (XML)
-                </button>
+    actionsContainer.innerHTML = `
+        <div style="text-align: center; margin-bottom: 20px;">
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                <i class="fas fa-hand-pointer"></i>
+                <strong>Haz clic en cualquier campo de arriba para editarlo directamente</strong>
             </div>
-        `;
-        
-        actionsContainer.innerHTML = buttonsHTML;
-        
-        // Agregar event listeners para cada botón de edición
-        setTimeout(() => {
-            const editButtons = actionsContainer.querySelectorAll('.btn-edit-individual');
-            editButtons.forEach(button => {
-                button.addEventListener('click', (e) => {
-                    const productIndex = parseInt(e.target.closest('.btn-edit-individual').dataset.productIndex);
-                    showEditForm(productIndex);
-                });
-            });
-            
-            const exportAllBtn = document.getElementById('btn-export-all');
-            if (exportAllBtn) {
-                exportAllBtn.addEventListener('click', () => showExportOptions(true));
-            }
-        }, 10);
-        
-    } else {
-        // Producto único - comportamiento original
-        actionsContainer.innerHTML = `
-            <div class="action-buttons">
-                <button id="btn-edit-result" class="btn-primary edit-btn">
-                    <i class="fas fa-edit"></i> Editar Clasificación
-                </button>
-                <button id="btn-export" class="btn-success export-btn" style="display: none;">
-                    <i class="fas fa-download"></i> Exportar XML
-                </button>
-            </div>
-            <p class="edit-hint">
-                <i class="fas fa-info-circle"></i> 
-                Para exportar, primero edite y valide la clasificación completando los campos obligatorios.
-            </p>
-        `;
-        
-        setTimeout(() => {
-            document.getElementById('btn-edit-result').addEventListener('click', () => showEditForm(0));
-            document.getElementById('btn-export').addEventListener('click', showExportOptions);
-        }, 10);
-    }
+        </div>
+        <div style="text-align: center;">
+            <button onclick="window.exportarXML()" style="
+                background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+                color: white;
+                border: none;
+                padding: 15px 30px;
+                font-size: 18px;
+                border-radius: 8px;
+                cursor: pointer;
+                box-shadow: 0 4px 15px rgba(17, 153, 142, 0.4);
+                transition: all 0.3s;
+                font-weight: bold;
+            " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+                <i class="fas fa-download"></i> DESCARGAR XML
+            </button>
+        </div>
+    `;
     
-    // Agregar después del contenedor de resultados
+    // Agregar al DOM
     const resultsDiv = document.getElementById('results');
     resultsDiv.appendChild(actionsContainer);
-    actionsContainer.style.display = 'block';
+    
+    console.log('✅ Editor JSON agregado correctamente');
 }
 
 function createResultCard(data, index = null) {
@@ -540,108 +675,299 @@ function createResultCard(data, index = null) {
             </div>
         ` : ''}
         
-        <!-- Información Comercial -->
-        <div class="info-grid">
-            <div class="info-section">
-                <h4><i class="fas fa-box"></i> Información del Producto</h4>
-                <div class="detail-grid">
-                    ${descripcion_comercial ? `
-                        <div class="detail-item">
-                            <div class="detail-label">Descripción Comercial</div>
-                            <div class="detail-value">${descripcion_comercial}</div>
-                        </div>
-                    ` : ''}
+        <!-- Información Comercial (dinámica) - MEJORADO -->
+        ${(() => {
+            // Función para extraer todos los campos del objeto recursivamente
+            const extractAllFields = (obj, prefix = '') => {
+                const fields = [];
+                
+                if (!obj || typeof obj !== 'object') return fields;
+                
+                // Mapeo de nombres técnicos a etiquetas user-friendly
+                const labelMap = {
+                    'hs': 'Código HS',
+                    'descripcion_arancelaria': 'Descripción Arancelaria',
+                    'descripcion_comercial': 'Descripción Comercial',
+                    'item_name': 'Nombre del Producto',
+                    'product_name': 'Producto',
+                    'pais_origen': 'País de Origen',
+                    'country_of_origin': 'País de Origen',
+                    'pais_procedencia': 'País de Procedencia',
+                    'valor_unitario': 'Valor Unitario (FOB)',
+                    'valor_total': 'Valor Total',
+                    'value': 'Valor',
+                    'total_value': 'Valor Total',
+                    'unidad_medida_estadistica': 'Unidad de Medida',
+                    'unit_of_measure': 'Unidad',
+                    'cantidad_total': 'Cantidad Total',
+                    'quantity': 'Cantidad',
+                    'peso_neto': 'Peso Neto',
+                    'peso_bruto': 'Peso Bruto',
+                    'net_weight': 'Peso Neto',
+                    'gross_weight': 'Peso Bruto',
+                    'moneda': 'Moneda',
+                    'currency': 'Moneda',
+                    'tipo_operacion': 'Tipo de Operación',
+                    'operation_type': 'Tipo de Operación',
+                    'regimen_aduanero': 'Régimen Aduanero',
+                    'customs_regime': 'Régimen Aduanero',
+                    'incoterm': 'Incoterm',
+                    'marca': 'Marca',
+                    'brand': 'Marca',
+                    'modelo': 'Modelo',
+                    'model': 'Modelo',
+                    'ano': 'Año',
+                    'year': 'Año',
+                    'material': 'Material',
+                    'especificacion': 'Especificación',
+                    'specification': 'Especificación',
+                    'uso': 'Uso',
+                    'use': 'Uso',
+                    'aplicacion': 'Aplicación',
+                    'observaciones': 'Observaciones',
+                    'notes': 'Notas',
+                    'partidas_alternativas_consideradas': 'Partidas Alternativas',
+                    'alternate_hs_codes': 'Códigos HS Alternativos',
+                    'motivo_descarte_alternativas': 'Motivo de Descarte',
+                    'citas_legales': 'Referencias Legales',
+                    'legal_references': 'Referencias Legales',
+                    'dai': 'DAI (%)',
+                    'itbis': 'ITBIS (%)',
+                    'arancel': 'Arancel (%)',
+                    'impuesto': 'Impuesto (%)'
+                };
+                
+                // Campos a excluir de la visualización
+                const excludeFields = [
+                    'fundamentacion_legal',
+                    'legal_basis',
+                    'nivel_confianza_clasificacion',
+                    'confidence',
+                    'descripcion_items',
+                    'item_description',
+                    'tokens_info',
+                    'success',
+                    'mensaje'
+                ];
+                
+                for (const [key, value] of Object.entries(obj)) {
+                    const fullKey = prefix ? `${prefix}.${key}` : key;
                     
-                    ${pais_origen && pais_origen !== 'No especificado' ? `
-                        <div class="detail-item">
-                            <div class="detail-label">País de Origen</div>
-                            <div class="detail-value">
-                                <i class="fas fa-flag"></i> ${pais_origen}
-                            </div>
-                        </div>
-                    ` : ''}
+                    // Saltar campos excluidos
+                    if (excludeFields.includes(key)) continue;
                     
-                    ${pais_procedencia && pais_procedencia !== 'No especificado' ? `
-                        <div class="detail-item">
-                            <div class="detail-label">País de Procedencia</div>
-                            <div class="detail-value">
-                                <i class="fas fa-shipping-fast"></i> ${pais_procedencia}
+                    // Si el valor es null o undefined, saltar
+                    if (value === null || value === undefined) continue;
+                    
+                    // Si es un objeto anidado (pero no un array)
+                    if (typeof value === 'object' && !Array.isArray(value)) {
+                        // Recursivamente extraer campos del objeto anidado
+                        fields.push(...extractAllFields(value, fullKey));
+                    }
+                    // Si es un array simple de valores primitivos
+                    else if (Array.isArray(value) && value.length > 0 && typeof value[0] !== 'object') {
+                        fields.push({
+                            key: fullKey,
+                            label: labelMap[key] || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                            value: value.join(', '),
+                            isArray: true
+                        });
+                    }
+                    // Si es un array de objetos, procesar cada elemento con su índice
+                    else if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object') {
+                        value.forEach((item, index) => {
+                            fields.push(...extractAllFields(item, `${fullKey}[${index}]`));
+                        });
+                    }
+                    // Valor primitivo
+                    else if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+                        // Formatear el valor
+                        let displayValue = value;
+                        if (typeof value === 'number') {
+                            // Si parece un código HS (número largo)
+                            if (key === 'hs' || key.includes('hs_')) {
+                                displayValue = formatearCodigoHS(String(value));
+                            } else if (key.includes('valor') || key.includes('value') || key.includes('precio')) {
+                                displayValue = `$${value.toFixed(2)}`;
+                            } else {
+                                displayValue = value;
+                            }
+                        }
+                        
+                        fields.push({
+                            key: fullKey,
+                            label: labelMap[key] || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                            value: displayValue,
+                            isPrimitive: true
+                        });
+                    }
+                }
+                
+                return fields;
+            };
+            
+            // Función para detectar y agrupar campos por arrays
+            function groupFieldsByArray(fields) {
+                const grouped = {
+                    root: [],  // Campos que no pertenecen a arrays
+                    arrays: {} // Campos agrupados por array
+                };
+                
+                fields.forEach(field => {
+                    const arrayMatch = field.key.match(/^([^\[]+)\[(\d+)\]\.(.+)$/);
+                    if (arrayMatch) {
+                        const [, arrayPath, index, fieldName] = arrayMatch;
+                        if (!grouped.arrays[arrayPath]) {
+                            grouped.arrays[arrayPath] = {};
+                        }
+                        if (!grouped.arrays[arrayPath][index]) {
+                            grouped.arrays[arrayPath][index] = [];
+                        }
+                        grouped.arrays[arrayPath][index].push({
+                            ...field,
+                            arrayPath,
+                            arrayIndex: parseInt(index),
+                            fieldName
+                        });
+                    } else {
+                        grouped.root.push(field);
+                    }
+                });
+                
+                return grouped;
+            }
+            
+            // Extraer todos los campos del objeto data
+            const allFields = extractAllFields(data);
+            
+            if (allFields.length === 0) {
+                return `<div class="info-grid">
+                    <div class="info-section">
+                        <h4><i class="fas fa-exclamation-triangle"></i> Sin Información Estructurada</h4>
+                        <div class="detail-grid">
+                            <div class="detail-item">
+                                <div class="detail-label">Respuesta Completa</div>
+                                <div class="detail-value">
+                                    <pre style="white-space:pre-wrap;max-height:300px;overflow:auto;background:#f1f5f9;padding:1rem;border-radius:8px;">${escapeHtml(JSON.stringify(data, null, 2))}</pre>
+                                </div>
                             </div>
                         </div>
-                    ` : ''}
-                </div>
-            </div>
-            
-            <!-- Información Comercial/Financiera -->
-            ${(valor_unitario && valor_unitario !== 'No especificado') || 
-              (valor_total && valor_total !== 'No especificado') || 
-              (cantidad_total && cantidad_total !== 'No especificado') ? `
-                <div class="info-section">
-                    <h4><i class="fas fa-dollar-sign"></i> Información Comercial</h4>
-                    <div class="detail-grid">
-                        ${valor_unitario && valor_unitario !== 'No especificado' ? `
-                            <div class="detail-item">
-                                <div class="detail-label">Valor Unitario</div>
-                                <div class="detail-value money">${valor_unitario} ${moneda || ''}</div>
-                            </div>
-                        ` : ''}
-                        
-                        ${valor_total && valor_total !== 'No especificado' ? `
-                            <div class="detail-item">
-                                <div class="detail-label">Valor Total</div>
-                                <div class="detail-value money">${valor_total} ${moneda || ''}</div>
-                            </div>
-                        ` : ''}
-                        
-                        ${cantidad_total && cantidad_total !== 'No especificado' && 
-                          unidad_medida_estadistica && unidad_medida_estadistica !== 'No especificado' ? `
-                            <div class="detail-item">
-                                <div class="detail-label">Cantidad</div>
-                                <div class="detail-value">
-                                    <i class="fas fa-cubes"></i> ${cantidad_total} ${unidad_medida_estadistica}
-                                </div>
-                            </div>
-                        ` : ''}
-                        
-                        ${incoterm && incoterm !== 'No especificado' ? `
-                            <div class="detail-item">
-                                <div class="detail-label">Incoterm</div>
-                                <div class="detail-value">
-                                    <span class="incoterm-badge">${incoterm}</span>
-                                </div>
-                            </div>
-                        ` : ''}
                     </div>
-                </div>
-            ` : ''}
+                </div>`;
+            }
             
-            <!-- Información Física -->
-            ${(peso_neto && peso_neto !== 'No especificado') || 
-              (peso_bruto && peso_bruto !== 'No especificado') ? `
-                <div class="info-section">
-                    <h4><i class="fas fa-weight"></i> Información Física</h4>
-                    <div class="detail-grid">
-                        ${peso_neto && peso_neto !== 'No especificado' ? `
-                            <div class="detail-item">
-                                <div class="detail-label">Peso Neto</div>
-                                <div class="detail-value">
-                                    <i class="fas fa-balance-scale"></i> ${peso_neto}
-                                </div>
+            // Agrupar campos
+            const groupedFields = groupFieldsByArray(allFields);
+            
+            // Función para categorizar un campo
+            function categorizeField(field) {
+                const label = field.label.toLowerCase();
+                const key = field.key.toLowerCase();
+                
+                if (label.includes('código') || label.includes('hs') || key.includes('clasificacion') || 
+                    label.includes('descripción arancelaria') || label.includes('subpartida') || label.includes('partida')) {
+                    return 'Código y Descripción';
+                } else if (label.includes('nombre') || label.includes('producto') || label.includes('marca') || 
+                           label.includes('modelo') || label.includes('especificación') || label.includes('material') ||
+                           label.includes('descripcion') && !label.includes('arancelaria')) {
+                    return 'Información del Producto';
+                } else if (label.includes('valor') || label.includes('cantidad') || label.includes('peso') || 
+                           label.includes('precio') || label.includes('moneda') || label.includes('unidad') ||
+                           label.includes('subtotal')) {
+                    return 'Valores y Cantidades';
+                } else if (label.includes('país') || label.includes('origen') || label.includes('procedencia') ||
+                           label.includes('direccion') || label.includes('telefono')) {
+                    return 'Ubicación';
+                } else if (label.includes('dai') || label.includes('itbis') || label.includes('arancel') || 
+                           label.includes('impuesto') || label.includes('régimen')) {
+                    return 'Impuestos';
+                } else if (label.includes('vendedor') || label.includes('comprador') || label.includes('rnc')) {
+                    return 'Partes Involucradas';
+                } else if (label.includes('factura') || label.includes('numero') || label.includes('fecha') ||
+                           label.includes('incoterm') || label.includes('empaque') || label.includes('condiciones')) {
+                    return 'Información Comercial';
+                } else {
+                    return 'Otros';
+                }
+            }
+            
+            // Generar HTML
+            let html = '<div class="info-grid">';
+            
+            // Mostrar campos raíz primero (categorizados)
+            if (groupedFields.root.length > 0) {
+                const categorizedRoot = {};
+                groupedFields.root.forEach(field => {
+                    const category = categorizeField(field);
+                    if (!categorizedRoot[category]) categorizedRoot[category] = [];
+                    categorizedRoot[category].push(field);
+                });
+                
+                for (const [category, fields] of Object.entries(categorizedRoot)) {
+                    if (fields.length === 0) continue;
+                    
+                    html += `<div class="info-section">
+                        <h4><i class="fas fa-box"></i> ${category}</h4>
+                        <div class="detail-grid">`;
+                    
+                    fields.forEach(field => {
+                        html += `<div class="detail-item editable-field" data-field-key="${escapeHtml(field.key)}"
+                            onclick="editarCampoDirecto('${escapeHtml(field.key)}', '${escapeHtml(field.label)}', this)">
+                            <div class="detail-label">
+                                <i class="fas fa-edit" style="opacity: 0.3; margin-right: 5px;"></i>
+                                ${escapeHtml(field.label)}
                             </div>
-                        ` : ''}
-                        
-                        ${peso_bruto && peso_bruto !== 'No especificado' ? `
-                            <div class="detail-item">
-                                <div class="detail-label">Peso Bruto</div>
-                                <div class="detail-value">
-                                    <i class="fas fa-weight-hanging"></i> ${peso_bruto}
-                                </div>
+                            <div class="detail-value" data-original-value="${escapeHtml(String(field.value))}">${escapeHtml(String(field.value))}</div>
+                        </div>`;
+                    });
+                    
+                    html += '</div></div>';
+                }
+            }
+            
+            // Mostrar arrays de forma separada
+            for (const [arrayPath, items] of Object.entries(groupedFields.arrays)) {
+                const arrayName = arrayPath.split('.').pop();
+                const arrayLabel = arrayName.charAt(0).toUpperCase() + arrayName.slice(1).replace(/_/g, ' ');
+                
+                html += `<div class="array-section">
+                    <h4>
+                        <i class="fas fa-layer-group"></i> ${arrayLabel}
+                        <span>
+                            ${Object.keys(items).length} ${Object.keys(items).length === 1 ? 'item' : 'items'}
+                        </span>
+                    </h4>
+                    <div class="array-container">`;
+                
+                // Cada elemento del array en su propia tarjeta
+                Object.entries(items).sort((a, b) => parseInt(a[0]) - parseInt(b[0])).forEach(([index, fields]) => {
+                    html += `<div class="array-item-card">
+                        <div class="array-item-header">
+                            <div class="item-number">${parseInt(index) + 1}</div>
+                            <span class="item-label">Item ${parseInt(index) + 1}</span>
+                        </div>
+                        <div class="detail-grid">`;
+                    
+                    fields.forEach(field => {
+                        html += `<div class="detail-item editable-field" data-field-key="${escapeHtml(field.key)}"
+                            onclick="editarCampoDirecto('${escapeHtml(field.key)}', '${escapeHtml(field.label)}', this)">
+                            <div class="detail-label">
+                                <i class="fas fa-edit" style="opacity: 0.3; margin-right: 5px;"></i>
+                                ${escapeHtml(field.label)}
                             </div>
-                        ` : ''}
-                    </div>
-                </div>
-            ` : ''}
-        </div>
+                            <div class="detail-value" data-original-value="${escapeHtml(String(field.value))}">${escapeHtml(String(field.value))}</div>
+                        </div>`;
+                    });
+                    
+                    html += '</div></div>';
+                });
+                
+                html += '</div></div>';
+            }
+            
+            html += '</div>';
+            return html;
+        })()}
         
         <!-- Fundamentación Legal -->
 
@@ -676,7 +1002,7 @@ function createResultCard(data, index = null) {
                     <i class="fas fa-code"></i>
                     Ver JSON completo
                 </summary>
-                <div class="json-viewer">
+                <div class="json-viewer" id="json-viewer-display">
                     ${JSON.stringify(data, null, 2)}
                 </div>
             </details>
@@ -700,6 +1026,55 @@ function showError(message) {
 function hideError() {
     document.getElementById('error').style.display = 'none';
 }
+
+// Funciones de ayuda para el frontend
+function setExample(type) {
+    const examples = {
+        smartphone: 'Smartphone marca Samsung Galaxy S23 Ultra, pantalla Dynamic AMOLED 2X de 6.8 pulgadas con resolución QHD+, procesador Qualcomm Snapdragon 8 Gen 2, memoria RAM 12GB, almacenamiento interno 512GB, sistema de cámaras cuádruple (200MP + 12MP + 10MP + 10MP), batería 5000mAh, conectividad 5G, WiFi 6E, Bluetooth 5.3, sistema operativo Android 13, carcasa de aluminio y vidrio Gorilla Glass Victus 2, color negro fantasma, fabricado en Vietnam, nuevo en caja sellada con todos los accesorios originales.',
+        
+        laptop: 'Laptop marca Dell XPS 15 9530, pantalla táctil OLED de 15.6 pulgadas con resolución 3.5K, procesador Intel Core i9-13900H de 13ª generación, memoria RAM 32GB DDR5, disco sólido NVMe 1TB, tarjeta gráfica NVIDIA GeForce RTX 4070 8GB, teclado retroiluminado, lector de huellas, webcam Full HD, batería 86Wh, sistema operativo Windows 11 Pro, carcasa de aluminio color platino, peso 1.86kg, fabricado en China, nuevo con garantía internacional de 1 año.',
+        
+        ropa: 'Camisa de vestir para hombre, manga larga, marca Ralph Lauren, talla L (large), 100% algodón pima peruano de alta calidad, color azul cielo con rayas blancas finas verticales, cuello italiano con varillas removibles, cierre frontal con 7 botones de nácar, puños con botones, bolsillo en el pecho con logo bordado, corte slim fit, costuras reforzadas, etiqueta de composición y cuidados en el cuello, fabricada en Perú, nueva con etiquetas originales.',
+        
+        alimento: 'Aceite de oliva extra virgen premium, marca española Carbonell, primera prensa en frío de aceitunas variedad Picual, acidez máxima 0.4%, color verde dorado intenso, sabor afrutado con notas de hierba fresca y almendra, contenido neto 1 litro, presentación en botella de vidrio oscuro con cierre hermético, certificación DOP (Denominación de Origen Protegida) de Andalucía, cosecha 2024, fecha de caducidad 24 meses desde producción, rico en polifenoles y vitamina E, producido y envasado en Córdoba, España.',
+        
+        vehiculo: 'Automóvil marca Toyota Corolla Cross Hybrid 2024, tipo SUV compacto, motor híbrido de 1.8 litros 4 cilindros en línea combinado con motor eléctrico para potencia total de 122HP, transmisión automática CVT, tracción delantera, kilometraje 0 km (nuevo), capacidad 5 pasajeros, sistema de seguridad Toyota Safety Sense 2.5 con pre-colisión, asistente de mantenimiento de carril, control crucero adaptativo, cámaras 360°, pantalla táctil 9 pulgadas con Apple CarPlay y Android Auto, tapicería de cuero sintético, aire acondicionado automático dual, rines de aleación 18 pulgadas, color blanco perla, chasis número JTDEPRAE1PJ123456, fabricado en Tailandia, importación directa.'
+    };
+    
+    const textarea = document.getElementById('producto-texto');
+    textarea.value = examples[type] || '';
+    updateCharCount();
+    
+    // Scroll suave al textarea
+    textarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    textarea.focus();
+}
+
+function updateCharCount() {
+    const textarea = document.getElementById('producto-texto');
+    const charCount = document.getElementById('char-count');
+    if (textarea && charCount) {
+        charCount.textContent = textarea.value.length;
+        
+        // Cambiar color según la longitud
+        if (textarea.value.length < 100) {
+            charCount.style.color = '#dc2626';
+        } else if (textarea.value.length < 300) {
+            charCount.style.color = '#d97706';
+        } else {
+            charCount.style.color = '#059669';
+        }
+    }
+}
+
+// Event listener para el contador de caracteres
+document.addEventListener('DOMContentLoaded', function() {
+    const textarea = document.getElementById('producto-texto');
+    if (textarea) {
+        textarea.addEventListener('input', updateCharCount);
+        updateCharCount(); // Inicializar
+    }
+});
 
 // Funciones principales
 async function clasificarTexto() {
@@ -739,6 +1114,10 @@ async function clasificarTexto() {
         
         const result = await response.json();
         
+        console.log('📡 RESPUESTA DE LA API (clasificar por texto):');
+        console.log('Status:', response.status);
+        console.log('Data:', JSON.stringify(result, null, 2));
+        
         if (!response.ok) {
             // Manejar errores de autenticación
             if (response.status === 401) {
@@ -757,9 +1136,12 @@ async function clasificarTexto() {
         if (result.success) {
             // Actualizar información de consumo si está disponible
             if (result.tokens_info && userInfo) {
-                userInfo.limites.tokens_consumidos += result.tokens_info.total_tokens;
-                const tokensText = `${userInfo.limites.tokens_consumidos.toLocaleString()} / ${userInfo.limites.tokens_limite_mensual.toLocaleString()} tokens`;
-                document.getElementById('tokens-info').textContent = tokensText;
+                if (userInfo.limites) {
+                    userInfo.limites.tokens_consumidos += result.tokens_info.total_tokens;
+                    const tokensText = `${userInfo.limites.tokens_consumidos.toLocaleString()} / ${userInfo.limites.tokens_limite_mensual.toLocaleString()} tokens`;
+                    const tokensElement = document.getElementById('tokens-info');
+                    if (tokensElement) tokensElement.textContent = tokensText;
+                }
                 updatePlanInfo();
             }
             
@@ -829,6 +1211,10 @@ async function clasificarArchivo() {
         
         const result = await response.json();
         
+        console.log('📡 RESPUESTA DE LA API (clasificar por archivo):');
+        console.log('Status:', response.status);
+        console.log('Data:', JSON.stringify(result, null, 2));
+        
         if (!response.ok) {
             // Manejar errores de autenticación
             if (response.status === 401) {
@@ -847,9 +1233,12 @@ async function clasificarArchivo() {
         if (result.success) {
             // Actualizar información de consumo si está disponible
             if (result.tokens_info && userInfo) {
-                userInfo.limites.tokens_consumidos += result.tokens_info.total_tokens;
-                const tokensText = `${userInfo.limites.tokens_consumidos.toLocaleString()} / ${userInfo.limites.tokens_limite_mensual.toLocaleString()} tokens`;
-                document.getElementById('tokens-info').textContent = tokensText;
+                if (userInfo.limites) {
+                    userInfo.limites.tokens_consumidos += result.tokens_info.total_tokens;
+                    const tokensText = `${userInfo.limites.tokens_consumidos.toLocaleString()} / ${userInfo.limites.tokens_limite_mensual.toLocaleString()} tokens`;
+                    const tokensElement = document.getElementById('tokens-info');
+                    if (tokensElement) tokensElement.textContent = tokensText;
+                }
                 updatePlanInfo();
             }
             
@@ -1921,6 +2310,7 @@ async function cambiarPlan(planId) {
 
 async function loadConsumoHistory() {
     try {
+        // await checkAuthStatus(); // Comentado - función no existe
         // Datos demo de historial de consumo
         const historialDemo = [
             { fecha: '2025-11-01', tokens: 245, tipo: 'texto' },
@@ -1970,20 +2360,25 @@ function updatePlanInfo() {
     document.getElementById('current-plan-devices').textContent = `${planDemo.dispositivos_concurrentes} dispositivos`;
     
     // Actualizar barra de progreso de tokens
-    const porcentajeUso = (userInfo.limites.tokens_consumidos / userInfo.limites.tokens_limite_mensual) * 100;
-    document.getElementById('tokens-progress').style.width = `${Math.min(porcentajeUso, 100)}%`;
-    
-    const tokensUsageText = `${userInfo.limites.tokens_consumidos.toLocaleString()} / ${userInfo.limites.tokens_limite_mensual.toLocaleString()} tokens`;
-    document.getElementById('tokens-usage-text').textContent = tokensUsageText;
-    
-    // Cambiar color de la barra según el uso
-    const progressBar = document.getElementById('tokens-progress');
-    if (porcentajeUso > 90) {
-        progressBar.style.background = 'linear-gradient(90deg, var(--error-color), var(--warning-color))';
-    } else if (porcentajeUso > 70) {
-        progressBar.style.background = 'linear-gradient(90deg, var(--warning-color), var(--success-color))';
-    } else {
-        progressBar.style.background = 'linear-gradient(90deg, var(--success-color), var(--warning-color))';
+    if (userInfo && userInfo.limites) {
+        const porcentajeUso = (userInfo.limites.tokens_consumidos / userInfo.limites.tokens_limite_mensual) * 100;
+        const progressBar = document.getElementById('tokens-progress');
+        if (progressBar) progressBar.style.width = `${Math.min(porcentajeUso, 100)}%`;
+        
+        const tokensUsageText = `${userInfo.limites.tokens_consumidos.toLocaleString()} / ${userInfo.limites.tokens_limite_mensual.toLocaleString()} tokens`;
+        const usageTextElement = document.getElementById('tokens-usage-text');
+        if (usageTextElement) usageTextElement.textContent = tokensUsageText;
+        
+        // Cambiar color de la barra según el uso
+        if (progressBar) {
+            if (porcentajeUso > 90) {
+                progressBar.style.background = 'linear-gradient(90deg, var(--error-color), var(--warning-color))';
+            } else if (porcentajeUso > 70) {
+                progressBar.style.background = 'linear-gradient(90deg, var(--warning-color), var(--success-color))';
+            } else {
+                progressBar.style.background = 'linear-gradient(90deg, var(--success-color), var(--warning-color))';
+            }
+        }
     }
 }
 
@@ -2038,7 +2433,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
     
     // Verificar autenticación al cargar
-    checkAuthStatus();
+    // checkAuthStatus(); // Comentado - función no existe
 });
 
 // Funciones para gestión de planes - FUNCIÓN DUPLICADA ELIMINADA
@@ -2104,12 +2499,18 @@ function updatePlanInfo() {
 
 // Funciones para edición de clasificación
 function showEditForm(productIndex = 0) {
+    console.log('🔍 showEditForm llamado con índice:', productIndex);
+    console.log('📊 resultadoActual:', resultadoActual);
+    
     const dataToEdit = Array.isArray(resultadoActual) ? resultadoActual[productIndex] : resultadoActual;
     
     if (!dataToEdit) {
         showNotification('No hay resultado para editar', 'error');
+        console.error('❌ No hay datos para editar');
         return;
     }
+    
+    console.log('📝 Datos a editar:', dataToEdit);
     
     // Guardar índice del producto que se está editando
     currentEditingIndex = productIndex;
@@ -2125,7 +2526,13 @@ function showEditForm(productIndex = 0) {
     }
     
     // Mostrar el modal
-    document.getElementById('edit-modal').style.display = 'flex';
+    const modal = document.getElementById('edit-modal');
+    if (modal) {
+        modal.style.display = 'flex';
+        console.log('✅ Modal abierto');
+    } else {
+        console.error('❌ Modal no encontrado');
+    }
 }
 
 function hideEditForm() {
@@ -2141,26 +2548,121 @@ function populateEditForm(data) {
     // Si es array, tomar el primer elemento
     const item = Array.isArray(data) ? data[0] : data;
     
-    if (!item) return;
+    if (!item) {
+        console.error('❌ No hay datos para rellenar en el formulario');
+        return;
+    }
+    
+    console.log('📋 Rellenando formulario con datos:', item);
+    
+    // Función helper para buscar valores en múltiples posibles keys
+    const tryGet = (obj, ...keys) => {
+        for (const key of keys) {
+            if (obj && obj[key] !== undefined && obj[key] !== null && obj[key] !== '') {
+                return obj[key];
+            }
+        }
+        return null;
+    };
+    
+    // Extraer valores de forma recursiva incluyendo objetos anidados
+    const extractValue = (obj, ...possibleKeys) => {
+        // Primero intentar en el nivel superior
+        let value = tryGet(obj, ...possibleKeys);
+        if (value !== null) return value;
+        
+        // Buscar en objetos anidados comunes
+        if (obj.mercancia) value = tryGet(obj.mercancia, ...possibleKeys);
+        if (value !== null) return value;
+        
+        if (obj.product) value = tryGet(obj.product, ...possibleKeys);
+        if (value !== null) return value;
+        
+        if (obj.ImpDeclarationProduct && Array.isArray(obj.ImpDeclarationProduct)) {
+            value = tryGet(obj.ImpDeclarationProduct[0], ...possibleKeys);
+            if (value !== null) return value;
+        }
+        
+        if (obj.productos && Array.isArray(obj.productos)) {
+            value = tryGet(obj.productos[0], ...possibleKeys);
+            if (value !== null) return value;
+        }
+        
+        return null;
+    };
+    
+    // Mapear campos correctamente (búsqueda exhaustiva)
+    const mapped = {
+        hs: extractValue(item, 'hs', 'codigo_hs', 'hs_code', 'HSCode'),
+        descripcion: extractValue(item, 'descripcion_arancelaria', 'description', 'descripcion', 'Descripcion'),
+        descripcion_comercial: extractValue(item, 'descripcion_comercial', 'item_name', 'product_name', 'ProductName', 'nombre_producto', 'producto'),
+        dai: extractValue(item, 'dai', 'arancel', 'DAI', 'derecho_arancel'),
+        itbis: extractValue(item, 'itbis', 'impuesto', 'ITBIS', 'iva') || '18.00',
+        pais_origen: extractValue(item, 'pais_origen', 'country_of_origin', 'origen', 'origin', 'OriginCountry'),
+        pais_procedencia: extractValue(item, 'pais_procedencia', 'country_of_origin', 'procedencia'),
+        marca: extractValue(item, 'marca', 'brand', 'BrandName'),
+        modelo: extractValue(item, 'modelo', 'model', 'ModelName'),
+        material: extractValue(item, 'material', 'Material'),
+        uso: extractValue(item, 'uso', 'aplicacion', 'use', 'application'),
+        peso: extractValue(item, 'peso_neto', 'weight', 'net_weight', 'NetWeight'),
+        peso_bruto: extractValue(item, 'peso_bruto', 'gross_weight', 'GrossWeight'),
+        dimensiones: extractValue(item, 'dimensiones', 'dimensions', 'Dimensions'),
+        valor_unitario: extractValue(item, 'valor_unitario', 'value', 'FOBValue', 'fob_unitario'),
+        valor_total: extractValue(item, 'valor_total', 'total_value', 'TotalFOB', 'total'),
+        cantidad: extractValue(item, 'cantidad_total', 'quantity', 'Qty', 'cantidad') || '1',
+        unidad_medida: extractValue(item, 'unidad_medida_estadistica', 'unit_of_measure', 'UnitCode', 'unidad'),
+        moneda: extractValue(item, 'moneda', 'currency', 'Currency'),
+        incoterm: extractValue(item, 'incoterm', 'Incoterm'),
+        especificacion: extractValue(item, 'especificacion', 'specification', 'ProductSpecification'),
+        ano: extractValue(item, 'ano', 'year', 'ProductYear'),
+        observaciones: extractValue(item, 'observaciones', 'notas', 'notes', 'observations')
+    };
+    
+    console.log('🔄 Datos mapeados:', mapped);
+    
+    // Función auxiliar para setear valores de forma segura
+    const setInputValue = (fieldId, value) => {
+        const element = document.getElementById(fieldId);
+        if (element) {
+            element.value = value || '';
+            if (value) {
+                console.log(`✅ Campo ${fieldId} rellenado con: ${value}`);
+            }
+        } else {
+            console.warn(`⚠️ Campo ${fieldId} no encontrado en el HTML`);
+        }
+    };
     
     // Campos obligatorios
-    document.getElementById('edit-hs-code').value = formatearCodigoHS(item.hs) || '';
-    document.getElementById('edit-description').value = item.descripcion || item.description || '';
-    document.getElementById('edit-dai').value = item.dai || item.arancel || '';
-    document.getElementById('edit-itbis').value = item.itbis || item.impuesto || '18.00';
-    document.getElementById('edit-product-name').value = item.producto || item.nombre || '';
-    document.getElementById('edit-origin').value = item.origen || item.origin || '';
+    setInputValue('edit-hs-code', mapped.hs ? formatearCodigoHS(mapped.hs) : '');
+    setInputValue('edit-description', mapped.descripcion);
+    setInputValue('edit-dai', mapped.dai);
+    setInputValue('edit-itbis', mapped.itbis);
+    setInputValue('edit-product-name', mapped.descripcion_comercial);
+    setInputValue('edit-origin', mapped.pais_origen);
     
     // Campos opcionales
-    document.getElementById('edit-brand').value = item.marca || item.brand || '';
-    document.getElementById('edit-model').value = item.modelo || item.model || '';
-    document.getElementById('edit-material').value = item.material || '';
-    document.getElementById('edit-use').value = item.uso || item.aplicacion || '';
-    document.getElementById('edit-weight').value = item.peso || item.weight || '';
-    document.getElementById('edit-dimensions').value = item.dimensiones || item.dimensions || '';
-    document.getElementById('edit-value').value = item.valor || item.value || '';
-    document.getElementById('edit-quantity').value = item.cantidad || item.quantity || '1';
-    document.getElementById('edit-observations').value = item.observaciones || item.notas || '';
+    setInputValue('edit-brand', mapped.marca);
+    setInputValue('edit-model', mapped.modelo);
+    setInputValue('edit-material', mapped.material);
+    setInputValue('edit-use', mapped.uso);
+    setInputValue('edit-weight', mapped.peso);
+    setInputValue('edit-dimensions', mapped.dimensiones);
+    setInputValue('edit-value', mapped.valor_unitario);
+    setInputValue('edit-quantity', mapped.cantidad);
+    setInputValue('edit-observations', mapped.observaciones);
+    
+    // Mostrar un resumen de los campos cargados en consola
+    const loadedFields = Object.entries(mapped).filter(([k, v]) => v !== null && v !== '').length;
+    console.log(`✅ Formulario rellenado: ${loadedFields}/${Object.keys(mapped).length} campos con datos`);
+    
+    // Si hay campos sin llenar obligatorios, mostrar advertencia
+    const requiredFields = ['hs', 'descripcion', 'dai', 'itbis', 'descripcion_comercial', 'pais_origen'];
+    const missingRequired = requiredFields.filter(f => !mapped[f]);
+    if (missingRequired.length > 0) {
+        console.warn(`⚠️ Campos obligatorios sin datos: ${missingRequired.join(', ')}`);
+        showNotification(`Algunos campos obligatorios están vacíos. Por favor, complételos antes de guardar.`, 'warning');
+    }
 }
 
 function clearEditForm() {
@@ -2250,26 +2752,29 @@ function validateAndSave() {
         return;
     }
     
-    // Recopilar datos del formulario
+    // Recopilar datos del formulario con TODOS los campos
     const editedData = {
         hs: document.getElementById('edit-hs-code').value,
-        descripcion: document.getElementById('edit-description').value,
+        descripcion_arancelaria: document.getElementById('edit-description').value,
+        descripcion_comercial: document.getElementById('edit-product-name').value,
         dai: parseFloat(document.getElementById('edit-dai').value),
         itbis: parseFloat(document.getElementById('edit-itbis').value),
-        producto: document.getElementById('edit-product-name').value,
-        origen: document.getElementById('edit-origin').value,
+        pais_origen: document.getElementById('edit-origin').value,
         marca: document.getElementById('edit-brand').value,
         modelo: document.getElementById('edit-model').value,
         material: document.getElementById('edit-material').value,
         uso: document.getElementById('edit-use').value,
-        peso: parseFloat(document.getElementById('edit-weight').value) || null,
+        peso_neto: parseFloat(document.getElementById('edit-weight').value) || null,
         dimensiones: document.getElementById('edit-dimensions').value,
-        valor_fob: parseFloat(document.getElementById('edit-value').value) || null,
-        cantidad: parseInt(document.getElementById('edit-quantity').value) || 1,
+        valor_unitario: parseFloat(document.getElementById('edit-value').value) || null,
+        cantidad_total: parseInt(document.getElementById('edit-quantity').value) || 1,
         observaciones: document.getElementById('edit-observations').value,
         fecha_clasificacion: new Date().toISOString(),
-        validado: true
+        validado: true,
+        editado: true
     };
+    
+    console.log('💾 Guardando datos editados:', editedData);
     
     // Actualizar el resultado actual
     if (Array.isArray(resultadoActual)) {
@@ -2277,11 +2782,15 @@ function validateAndSave() {
         resultadoActual[currentEditingIndex] = { ...resultadoActual[currentEditingIndex], ...editedData };
         if (!editedClassification) editedClassification = [];
         editedClassification[currentEditingIndex] = editedData;
+        console.log(`✅ Producto ${currentEditingIndex} actualizado`);
     } else {
-        // Producto único
-        resultadoActual = editedData;
-        editedClassification = editedData;
+        // Producto único - mergear con datos existentes
+        resultadoActual = { ...resultadoActual, ...editedData };
+        editedClassification = resultadoActual;
+        console.log('✅ Producto único actualizado');
     }
+    
+    console.log('📊 resultadoActual después de editar:', resultadoActual);
     
     // Actualizar la vista de resultados
     updateResultsView();
@@ -2292,7 +2801,7 @@ function validateAndSave() {
     // Cerrar modal
     hideEditForm();
     
-    showNotification('Clasificación guardada correctamente.', 'success');
+    showNotification('✅ Clasificación guardada. Ahora puede exportar el XML actualizado.', 'success');
 }
 
 function updateActionButtons() {
@@ -2308,6 +2817,9 @@ function updateActionButtons() {
             if (allEdited) {
                 exportAllBtn.style.display = 'inline-flex';
                 exportAllBtn.innerHTML = '<i class="fas fa-download"></i> Exportar Todos (XML)';
+                exportAllBtn.disabled = false;
+                exportAllBtn.classList.add('btn-success');
+                exportAllBtn.classList.remove('btn-secondary');
             } else {
                 exportAllBtn.style.display = 'inline-flex';
                 exportAllBtn.innerHTML = '<i class="fas fa-info-circle"></i> Edite todos los productos para exportar';
@@ -2319,7 +2831,7 @@ function updateActionButtons() {
         const editButtons = document.querySelectorAll('.btn-edit-individual');
         editButtons.forEach((btn, index) => {
             if (editedClassification && editedClassification[index] && editedClassification[index].validado) {
-                btn.innerHTML = '<i class="fas fa-check"></i> Editado';
+                btn.innerHTML = '<i class="fas fa-check-circle"></i> Editado';
                 btn.classList.add('edited');
             }
         });
@@ -2328,11 +2840,28 @@ function updateActionButtons() {
         // Producto único
         const exportBtn = document.getElementById('btn-export');
         const editBtn = document.getElementById('btn-edit-result');
+        const editHint = document.querySelector('.edit-hint');
         
-        if (exportBtn && editBtn) {
-            exportBtn.style.display = 'inline-flex';
-            editBtn.innerHTML = '<i class="fas fa-check"></i> Editado';
-            editBtn.classList.add('edited');
+        if (editedClassification && editedClassification.validado) {
+            // Ya fue editado
+            if (editBtn) {
+                editBtn.innerHTML = '<i class="fas fa-check-circle"></i> Clasificación Editada';
+                editBtn.classList.add('edited');
+                editBtn.classList.remove('pulse-animation');
+            }
+            if (exportBtn) {
+                exportBtn.classList.add('pulse-animation');
+            }
+            if (editHint) {
+                editHint.innerHTML = '<i class="fas fa-check-circle"></i> ¡Perfecto! Ahora puedes exportar el XML con los datos actualizados.';
+                editHint.style.background = 'rgba(5, 150, 105, 0.1)';
+                editHint.style.borderColor = 'rgba(5, 150, 105, 0.3)';
+            }
+        } else {
+            // No ha sido editado aún
+            if (exportBtn) {
+                exportBtn.classList.remove('pulse-animation');
+            }
         }
     }
 }
@@ -2446,70 +2975,279 @@ function createEditedResultCard(data) {
 
 // Función mejorada de exportación
 function showExportOptions() {
-    if (!editedClassification) {
-        showNotification('Debe editar y validar la clasificación antes de exportar', 'warning');
-        document.getElementById('btn-edit-result').style.animation = 'pulse 1s ease-in-out 3';
-        setTimeout(() => {
-            document.getElementById('btn-edit-result').style.animation = '';
-        }, 3000);
+    console.log('📤 Iniciando exportación...');
+    console.log('📊 JSON a exportar:', JSON.stringify(resultadoActual, null, 2));
+    
+    // Usar directamente resultadoActual que ya tiene TODAS las ediciones
+    const dataToExport = resultadoActual;
+    
+    if (!dataToExport) {
+        showNotification('No hay datos para exportar', 'error');
         return;
     }
     
-    // Crear y descargar XML
-    const xmlContent = generateXML(editedClassification);
-    downloadFile(xmlContent, `clasificacion_${editedClassification.hs.replace(/\./g, '_')}_${new Date().getTime()}.xml`, 'application/xml');
+    // Verificar si es array (múltiples productos)
+    if (Array.isArray(dataToExport)) {
+        // Exportar múltiples productos
+        console.log(`📦 Exportando ${dataToExport.length} productos`);
+        exportMultipleProducts(dataToExport);
+    } else {
+        // Exportar producto único
+        console.log('📄 Exportando producto único');
+        console.log('📊 Data que se enviará a generateXML:', dataToExport);
+        
+        const xmlContent = generateXML(dataToExport);
+        console.log('📝 XML generado completo:', xmlContent);
+        
+        const hsCode = dataToExport.hs || dataToExport.hs_code || 'clasificacion';
+        const fileName = `clasificacion_${String(hsCode).replace(/\./g, '_')}_${new Date().getTime()}.xml`;
+        
+        downloadFile(xmlContent, fileName, 'application/xml');
+        
+        showNotification(`✅ XML exportado correctamente`, 'success');
+    }
+}
+
+function exportMultipleProducts(products) {
+    // Generar XML con múltiples productos
+    const xmlContent = generateMultiProductXML(products);
+    downloadFile(xmlContent, `clasificacion_multiple_${new Date().getTime()}.xml`, 'application/xml');
+    showNotification('✅ XML con múltiples productos exportado correctamente', 'success');
+}
+
+function generateMultiProductXML(products) {
+    const fecha = new Date().toISOString().split('T')[0];
+    const hora = new Date().toLocaleTimeString();
     
-    showNotification('XML exportado correctamente', 'success');
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<ClasificacionesArancelarias>
+    <Metadatos>
+        <FechaClasificacion>${fecha}</FechaClasificacion>
+        <HoraClasificacion>${hora}</HoraClasificacion>
+        <Sistema>Clasificador Arancelario RD</Sistema>
+        <Version>1.0</Version>
+        <CantidadProductos>${products.length}</CantidadProductos>
+    </Metadatos>
+    <Productos>
+`;
+    
+    products.forEach((product, index) => {
+        xml += `        <Producto id="${index + 1}">
+`;
+        xml += generateProductXMLContent(product, '            ');
+        xml += `        </Producto>
+`;
+    });
+    
+    xml += `    </Productos>
+</ClasificacionesArancelarias>`;
+    return xml;
+}
+
+function generateProductXMLContent(data, indent = '') {
+    return `${indent}<CodigoHS>${data.hs || ''}</CodigoHS>
+${indent}<DescripcionArancelaria><![CDATA[${data.descripcion_arancelaria || data.descripcion || ''}]]></DescripcionArancelaria>
+${indent}<DescripcionComercial><![CDATA[${data.descripcion_comercial || data.producto || ''}]]></DescripcionComercial>
+${indent}<PaisOrigen><![CDATA[${data.pais_origen || data.origen || ''}]]></PaisOrigen>
+${data.marca ? `${indent}<Marca><![CDATA[${data.marca}]]></Marca>
+` : ''}${data.modelo ? `${indent}<Modelo><![CDATA[${data.modelo}]]></Modelo>
+` : ''}${data.material ? `${indent}<Material><![CDATA[${data.material}]]></Material>
+` : ''}${data.peso_neto || data.peso ? `${indent}<PesoNeto>${data.peso_neto || data.peso}</PesoNeto>
+` : ''}${data.valor_unitario || data.valor_fob ? `${indent}<ValorUnitario>${data.valor_unitario || data.valor_fob}</ValorUnitario>
+` : ''}${data.cantidad_total ? `${indent}<Cantidad>${data.cantidad_total}</Cantidad>
+` : ''}<Impuestos>
+${indent}    <DAI>${data.dai || 0}</DAI>
+${indent}    <ITBIS>${data.itbis || 18}</ITBIS>
+${indent}</Impuestos>
+${data.observaciones ? `${indent}<Observaciones><![CDATA[${data.observaciones}]]></Observaciones>
+` : ''}${data.editado ? `${indent}<Editado>true</Editado>
+` : ''}`;
 }
 
 function generateXML(data) {
     const fecha = new Date().toISOString().split('T')[0];
     const hora = new Date().toLocaleTimeString();
     
-    return `<?xml version="1.0" encoding="UTF-8"?>
+    console.log('🔍 generateXML recibió data:', JSON.stringify(data, null, 2));
+    
+    // Función helper para buscar valores en objetos anidados (incluyendo arrays)
+    const findValue = (obj, ...keys) => {
+        for (let key of keys) {
+            if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') {
+                return obj[key];
+            }
+        }
+        // Buscar en objetos anidados
+        for (let k in obj) {
+            if (obj[k] !== null && obj[k] !== undefined) {
+                if (Array.isArray(obj[k])) {
+                    // Buscar en arrays (tomar el primer elemento)
+                    if (obj[k].length > 0 && typeof obj[k][0] === 'object') {
+                        const found = findValue(obj[k][0], ...keys);
+                        if (found) return found;
+                    }
+                } else if (typeof obj[k] === 'object') {
+                    const found = findValue(obj[k], ...keys);
+                    if (found) return found;
+                }
+            }
+        }
+        return null;
+    };
+    
+    // Función para recopilar todos los items de un array
+    const findAllItems = (obj, arrayName) => {
+        for (let k in obj) {
+            if (k === arrayName && Array.isArray(obj[k])) {
+                return obj[k];
+            }
+            if (typeof obj[k] === 'object' && obj[k] !== null && !Array.isArray(obj[k])) {
+                const found = findAllItems(obj[k], arrayName);
+                if (found) return found;
+            }
+        }
+        return null;
+    };
+    
+    // Buscar si hay productos en array
+    const productos = findAllItems(data, 'productos');
+    
+    // Si no hay productos en array, usar datos del objeto raíz
+    if (!productos || productos.length === 0) {
+        // Extraer valores buscando en todos los posibles campos
+        const hs = findValue(data, 'hs', 'hs_code', 'codigo_hs', 'clasificacion_arancelaria', 'subpartida', 'partida') || '';
+        const producto = findValue(data, 'descripcion_comercial', 'item_name', 'product_name', 'producto', 'nombre', 'descripcion') || '';
+        const descripcion = findValue(data, 'descripcion_arancelaria', 'descripcion', 'description') || '';
+        const origen = findValue(data, 'pais_origen', 'country_of_origin', 'origen', 'origin') || '';
+        const cantidad = findValue(data, 'cantidad_total', 'cantidad', 'quantity') || 1;
+        const peso = findValue(data, 'peso_neto', 'peso', 'net_weight', 'weight');
+        const valor = findValue(data, 'valor_unitario', 'valor_fob', 'valor_total', 'valor', 'value', 'total_value');
+        const marca = findValue(data, 'marca', 'brand');
+        const modelo = findValue(data, 'modelo', 'model');
+        const material = findValue(data, 'material');
+        const uso = findValue(data, 'uso', 'use', 'aplicacion');
+        const dimensiones = findValue(data, 'dimensiones', 'dimensions');
+        const dai = findValue(data, 'dai', 'arancel') || 0;
+        const itbis = findValue(data, 'itbis', 'impuesto', 'tax') || 18;
+        const observaciones = findValue(data, 'observaciones', 'notes', 'notas');
+        
+        console.log('📝 Datos extraídos para XML (un solo producto):', {
+            hs, producto, descripcion, origen, cantidad, peso, valor, marca, modelo, dai, itbis
+        });
+        
+        return `<?xml version="1.0" encoding="UTF-8"?>
 <ClasificacionArancelaria>
     <Metadatos>
         <FechaClasificacion>${fecha}</FechaClasificacion>
         <HoraClasificacion>${hora}</HoraClasificacion>
         <Sistema>Clasificador Arancelario RD</Sistema>
         <Version>1.0</Version>
-        <Validado>true</Validado>
+        <Validado>${data.validado ? 'true' : 'false'}</Validado>
+        ${data.editado ? '<Editado>true</Editado>' : ''}
     </Metadatos>
     
     <Producto>
-        <Nombre><![CDATA[${data.producto}]]></Nombre>
-        <CodigoHS>${data.hs}</CodigoHS>
-        <DescripcionArancelaria><![CDATA[${data.descripcion}]]></DescripcionArancelaria>
-        <PaisOrigen><![CDATA[${data.origen}]]></PaisOrigen>
-        <Cantidad>${data.cantidad}</Cantidad>
-        ${data.marca ? `<Marca><![CDATA[${data.marca}]]></Marca>` : ''}
-        ${data.modelo ? `<Modelo><![CDATA[${data.modelo}]]></Modelo>` : ''}
-        ${data.material ? `<Material><![CDATA[${data.material}]]></Material>` : ''}
-        ${data.uso ? `<Uso><![CDATA[${data.uso}]]></Uso>` : ''}
-        ${data.peso ? `<Peso unidad="kg">${data.peso}</Peso>` : ''}
-        ${data.dimensiones ? `<Dimensiones><![CDATA[${data.dimensiones}]]></Dimensiones>` : ''}
-        ${data.valor_fob ? `<ValorFOB moneda="USD">${data.valor_fob}</ValorFOB>` : ''}
+        <Nombre><![CDATA[${producto}]]></Nombre>
+        <CodigoHS>${hs}</CodigoHS>
+        <DescripcionArancelaria><![CDATA[${descripcion}]]></DescripcionArancelaria>
+        <PaisOrigen><![CDATA[${origen}]]></PaisOrigen>
+        <Cantidad>${cantidad}</Cantidad>
+        ${marca ? `<Marca><![CDATA[${marca}]]></Marca>` : ''}
+        ${modelo ? `<Modelo><![CDATA[${modelo}]]></Modelo>` : ''}
+        ${material ? `<Material><![CDATA[${material}]]></Material>` : ''}
+        ${uso ? `<Uso><![CDATA[${uso}]]></Uso>` : ''}
+        ${peso ? `<Peso unidad="kg">${peso}</Peso>` : ''}
+        ${dimensiones ? `<Dimensiones><![CDATA[${dimensiones}]]></Dimensiones>` : ''}
+        ${valor ? `<ValorUnitario moneda="USD">${valor}</ValorUnitario>` : ''}
     </Producto>
     
     <Impuestos>
-        <DAI tipo="porcentaje">${data.dai}</DAI>
-        <ITBIS tipo="porcentaje">${data.itbis}</ITBIS>
+        <DAI tipo="porcentaje">${dai}</DAI>
+        <ITBIS tipo="porcentaje">${itbis}</ITBIS>
     </Impuestos>
     
-    ${data.observaciones ? `
+    ${observaciones ? `
     <Observaciones>
-        <![CDATA[${data.observaciones}]]>
+        <![CDATA[${observaciones}]]>
     </Observaciones>` : ''}
     
     <CalculoImpuestos>
-        ${data.valor_fob ? `
-        <BaseImponible>${data.valor_fob}</BaseImponible>
-        <MontoDAI>${(data.valor_fob * data.dai / 100).toFixed(2)}</MontoDAI>
-        <BaseITBIS>${(data.valor_fob + (data.valor_fob * data.dai / 100)).toFixed(2)}</BaseITBIS>
-        <MontoITBIS>${((data.valor_fob + (data.valor_fob * data.dai / 100)) * data.itbis / 100).toFixed(2)}</MontoITBIS>
-        <TotalImpuestos>${((data.valor_fob * data.dai / 100) + ((data.valor_fob + (data.valor_fob * data.dai / 100)) * data.itbis / 100)).toFixed(2)}</TotalImpuestos>` : ''}
+        ${valor ? `
+        <BaseImponible>${valor}</BaseImponible>
+        <MontoDAI>${(valor * dai / 100).toFixed(2)}</MontoDAI>
+        <BaseITBIS>${(parseFloat(valor) + (parseFloat(valor) * dai / 100)).toFixed(2)}</BaseITBIS>
+        <MontoITBIS>${((parseFloat(valor) + (parseFloat(valor) * dai / 100)) * itbis / 100).toFixed(2)}</MontoITBIS>
+        <TotalImpuestos>${((parseFloat(valor) * dai / 100) + ((parseFloat(valor) + (parseFloat(valor) * dai / 100)) * itbis / 100)).toFixed(2)}</TotalImpuestos>` : ''}
     </CalculoImpuestos>
 </ClasificacionArancelaria>`;
+    } else {
+        // Generar XML con múltiples productos
+        console.log('📦 Generando XML con múltiples productos:', productos.length);
+        
+        // Extraer información general de la factura
+        const numeroFactura = findValue(data, 'numero', 'numero_factura', 'invoice_number') || '';
+        const fechaFactura = findValue(data, 'fecha', 'fecha_factura', 'invoice_date') || fecha;
+        const moneda = findValue(data, 'moneda', 'currency') || 'USD';
+        const valorTotal = findValue(data, 'valor_total', 'total', 'total_value') || 0;
+        const vendedor = findValue(data, 'vendedor', 'proveedor', 'supplier');
+        const comprador = findValue(data, 'comprador', 'importador', 'buyer');
+        
+        let productosXML = '';
+        productos.forEach((prod, index) => {
+            const hs = prod.clasificacion_arancelaria || prod.hs || prod.codigo_hs || '';
+            const descripcion = prod.descripcion || prod.nombre || prod.producto || '';
+            const cantidad = prod.cantidad || 1;
+            const precio = prod.precio_unitario || prod.precio || prod.valor || 0;
+            const subtotal = prod.subtotal || (cantidad * precio);
+            
+            productosXML += `
+    <Producto numero="${index + 1}">
+        <Descripcion><![CDATA[${descripcion}]]></Descripcion>
+        <CodigoHS>${hs}</CodigoHS>
+        <Cantidad>${cantidad}</Cantidad>
+        <PrecioUnitario moneda="${moneda}">${precio}</PrecioUnitario>
+        <Subtotal moneda="${moneda}">${subtotal}</Subtotal>
+    </Producto>`;
+        });
+        
+        return `<?xml version="1.0" encoding="UTF-8"?>
+<ClasificacionArancelaria>
+    <Metadatos>
+        <FechaClasificacion>${fecha}</FechaClasificacion>
+        <HoraClasificacion>${hora}</HoraClasificacion>
+        <Sistema>Clasificador Arancelario RD</Sistema>
+        <Version>1.0</Version>
+        <Validado>${data.validado ? 'true' : 'false'}</Validado>
+        ${data.editado ? '<Editado>true</Editado>' : ''}
+    </Metadatos>
+    
+    <InformacionFactura>
+        ${numeroFactura ? `<NumeroFactura>${numeroFactura}</NumeroFactura>` : ''}
+        ${fechaFactura ? `<FechaFactura>${fechaFactura}</FechaFactura>` : ''}
+        <Moneda>${moneda}</Moneda>
+        ${vendedor && typeof vendedor === 'object' ? `
+        <Vendedor>
+            <Nombre><![CDATA[${vendedor.nombre || ''}]]></Nombre>
+            ${vendedor.direccion ? `<Direccion><![CDATA[${vendedor.direccion}]]></Direccion>` : ''}
+            ${vendedor.rnc ? `<RNC>${vendedor.rnc}</RNC>` : ''}
+        </Vendedor>` : ''}
+        ${comprador && typeof comprador === 'object' ? `
+        <Comprador>
+            <Nombre><![CDATA[${comprador.nombre || ''}]]></Nombre>
+            ${comprador.direccion ? `<Direccion><![CDATA[${comprador.direccion}]]></Direccion>` : ''}
+            ${comprador.rnc ? `<RNC>${comprador.rnc}</RNC>` : ''}
+        </Comprador>` : ''}
+    </InformacionFactura>
+    
+    <Productos totalItems="${productos.length}">
+        ${productosXML}
+    </Productos>
+    
+    <Totales>
+        <ValorTotal moneda="${moneda}">${valorTotal}</ValorTotal>
+    </Totales>
+</ClasificacionArancelaria>`;
+    }
 }
 
 function downloadFile(content, filename, contentType) {

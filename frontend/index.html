@@ -112,25 +112,118 @@
 
             <!-- Tab Content: Texto -->
             <div id="tab-texto" class="tab-content" style="display: block;">
-                <div class="input-section">
-                    <h3><i class="fas fa-edit"></i> Descripción del Producto</h3>
-                    <textarea 
-                        id="producto-texto" 
-                        placeholder="Describe detalladamente el producto que deseas clasificar&#10;&#10;Ejemplo:&#10;Smartphone marca Samsung Galaxy S23, pantalla AMOLED de 6.1 pulgadas, memoria RAM 8GB, almacenamiento 256GB, cámara principal 50MP, conectividad 5G, sistema operativo Android, fabricado en Corea del Sur, nuevo en caja sellada."
-                        rows="6"></textarea>
-                    
-                    <div class="options">
-                        <label class="checkbox-container">
-                            <input type="checkbox" id="solo-hs-texto">
-                            <span class="checkmark"></span>
-                            Solo código HS (sin detalles adicionales)
+                <div class="input-section-enhanced">
+                    <!-- Header con instrucciones -->
+                    <div class="section-header">
+                        <div class="section-title">
+                            <i class="fas fa-edit"></i>
+                            <h3>Clasificación por Descripción de Producto</h3>
+                        </div>
+                        <p class="section-description">
+                            Describe el producto con el mayor detalle posible para obtener una clasificación arancelaria precisa.
+                        </p>
+                    </div>
+
+                    <!-- Tips para mejorar la clasificación -->
+                    <div class="info-tips">
+                        <div class="tip-header">
+                            <i class="fas fa-lightbulb"></i>
+                            <span>Tips para una clasificación precisa:</span>
+                        </div>
+                        <div class="tips-grid">
+                            <div class="tip-item">
+                                <i class="fas fa-check-circle"></i>
+                                <span>Incluye marca y modelo si aplica</span>
+                            </div>
+                            <div class="tip-item">
+                                <i class="fas fa-check-circle"></i>
+                                <span>Especifica materiales de fabricación</span>
+                            </div>
+                            <div class="tip-item">
+                                <i class="fas fa-check-circle"></i>
+                                <span>Indica el uso o función principal</span>
+                            </div>
+                            <div class="tip-item">
+                                <i class="fas fa-check-circle"></i>
+                                <span>Menciona el país de origen</span>
+                            </div>
+                            <div class="tip-item">
+                                <i class="fas fa-check-circle"></i>
+                                <span>Agrega características técnicas</span>
+                            </div>
+                            <div class="tip-item">
+                                <i class="fas fa-check-circle"></i>
+                                <span>Especifica si es nuevo o usado</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Área de entrada de texto mejorada -->
+                    <div class="text-input-container">
+                        <label for="producto-texto" class="input-label">
+                            <i class="fas fa-keyboard"></i>
+                            Descripción del Producto *
                         </label>
+                        <div class="textarea-wrapper">
+                            <textarea 
+                                id="producto-texto" 
+                                placeholder="Ejemplo: Smartphone marca Samsung Galaxy S23, pantalla AMOLED de 6.1 pulgadas, memoria RAM 8GB, almacenamiento interno 256GB, cámara principal 50MP + 12MP + 10MP, conectividad 5G, procesador Snapdragon 8 Gen 2, sistema operativo Android 13, color negro, fabricado en Vietnam, nuevo en caja sellada original."
+                                rows="8"></textarea>
+                            <div class="char-counter">
+                                <span id="char-count">0</span> caracteres
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Ejemplos rápidos -->
+                    <div class="quick-examples">
+                        <div class="examples-header">
+                            <i class="fas fa-rocket"></i>
+                            <span>Ejemplos rápidos:</span>
+                        </div>
+                        <div class="examples-buttons">
+                            <button type="button" class="btn-example" onclick="setExample('smartphone')">
+                                <i class="fas fa-mobile-alt"></i>
+                                Smartphone
+                            </button>
+                            <button type="button" class="btn-example" onclick="setExample('laptop')">
+                                <i class="fas fa-laptop"></i>
+                                Laptop
+                            </button>
+                            <button type="button" class="btn-example" onclick="setExample('ropa')">
+                                <i class="fas fa-tshirt"></i>
+                                Ropa
+                            </button>
+                            <button type="button" class="btn-example" onclick="setExample('alimento')">
+                                <i class="fas fa-apple-alt"></i>
+                                Alimento
+                            </button>
+                            <button type="button" class="btn-example" onclick="setExample('vehiculo')">
+                                <i class="fas fa-car"></i>
+                                Vehículo
+                            </button>
+                        </div>
                     </div>
                     
-                    <button class="btn-primary" onclick="clasificarTexto()">
-                        <i class="fas fa-search"></i>
-                        Clasificar Producto
-                    </button>
+                    <!-- Opciones y botón -->
+                    <div class="classification-actions">
+                        <div class="options">
+                            <label class="checkbox-container">
+                                <input type="checkbox" id="solo-hs-texto">
+                                <span class="checkmark"></span>
+                                <div class="checkbox-label">
+                                    <span class="label-text">Solo código HS</span>
+                                    <small>Respuesta rápida sin detalles adicionales</small>
+                                </div>
+                            </label>
+                        </div>
+                        
+                        <button class="btn-primary btn-classify" onclick="clasificarTexto()">
+                            <i class="fas fa-search"></i>
+                            <span>Clasificar Producto</span>
+                            <small>Análisis con IA</small>
+                        </button>
+                    </div>
                 </div>
             </div>
 

@@ -8,7 +8,7 @@ const OpenAI = require('openai');
 const { generarXmlImportDUA } = require('./utils/xmlGenerator');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3050;
 
 // Configuración de OpenAI
 const openai = new OpenAI({
@@ -17,7 +17,7 @@ const openai = new OpenAI({
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5500', 'file://'],
+  origin: ['http://localhost:3050', 'http://127.0.0.1:3050', 'http://localhost:5500', 'file://'],
   credentials: true
 }));
 app.use(express.json({ limit: '50mb' }));
@@ -280,6 +280,101 @@ app.use((error, req, res, next) => {
   
   console.error('Error no manejado:', error);
   res.status(500).json({ error: 'Error interno del servidor' });
+});
+
+// Almacenamiento temporal de clasificaciones en memoria (en producción usar base de datos)
+const clasificacionesActivas = new Map();
+
+// Endpoint para actualizar un campo en la clasificación
+app.post('/api/update-field', (req, res) => {
+  try {
+    const { sessionId, fieldKey, fieldValue } = req.body;
+    
+    console.log('📝 Actualizando campo:', { sessionId, fieldKey, fieldValue });
+    
+    if (!sessionId) {
+      return res.status(400).json({ error: 'sessionId requerido' });
+    }
+    
+    // Obtener la clasificación actual
+    let clasificacion = clasificacionesActivas.get(sessionId);
+    
+    if (!clasificacion) {
+      return res.status(404).json({ error: 'Clasificación no encontrada' });
+    }
+    
+    // Actualizar el campo directamente
+    clasificacion[fieldKey] = fieldValue;
+    
+    // También actualizar en objetos anidados si existen
+    function updateNested(obj) {
+      for (let key in obj) {
+        if (key === fieldKey && typeof obj[key] !== 'object') {
+          obj[key] = fieldValue;
+        } else if (typeof obj[key] === 'object' && obj[key] !== null && !Array.isArray(obj[key])) {
+          updateNested(obj[key]);
+        }
+      }
+    }
+    updateNested(clasificacion);
+    
+    // Marcar como editado
+    clasificacion.editado = true;
+    clasificacion.fecha_ultima_edicion = new Date().toISOString();
+    
+    // Guardar de vuelta
+    clasificacionesActivas.set(sessionId, clasificacion);
+    
+    console.log('✅ Campo actualizado en backend');
+    
+    res.json({ 
+      success: true, 
+      mensaje: 'Campo actualizado correctamente',
+      clasificacion: clasificacion
+    });
+    
+  } catch (error) {
+    console.error('Error actualizando campo:', error);
+    res.status(500).json({ error: 'Error actualizando campo' });
+  }
+});
+
+// Endpoint para guardar la clasificación inicial
+app.post('/api/save-classification', (req, res) => {
+  try {
+    const { sessionId, data } = req.body;
+    
+    if (!sessionId || !data) {
+      return res.status(400).json({ error: 'sessionId y data requeridos' });
+    }
+    
+    clasificacionesActivas.set(sessionId, data);
+    console.log('💾 Clasificación guardada con sessionId:', sessionId);
+    
+    res.json({ success: true, sessionId });
+    
+  } catch (error) {
+    console.error('Error guardando clasificación:', error);
+    res.status(500).json({ error: 'Error guardando clasificación' });
+  }
+});
+
+// Endpoint para obtener la clasificación actualizada
+app.get('/api/get-classification/:sessionId', (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const clasificacion = clasificacionesActivas.get(sessionId);
+    
+    if (!clasificacion) {
+      return res.status(404).json({ error: 'Clasificación no encontrada' });
+    }
+    
+    res.json({ success: true, data: clasificacion });
+    
+  } catch (error) {
+    console.error('Error obteniendo clasificación:', error);
+    res.status(500).json({ error: 'Error obteniendo clasificación' });
+  }
 });
 
 // Iniciar servidor
