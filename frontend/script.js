@@ -605,6 +605,7 @@ function createResultCard(data, index = null) {
             <div class="simple-result">
                 <i class="fas fa-check-circle"></i>
                 <p>Clasificación simplificada - Solo código HS</p>
+                <small>Haz clic en los botones de abajo para editar o exportar XML</small>
             </div>
         `;
         return card;
@@ -1173,12 +1174,36 @@ function handleFileSelect(input) {
     
     archivoSeleccionado = file;
     
-    // Mostrar información del archivo
+    console.log('📄 Archivo seleccionado:', {
+        name: file.name,
+        size: file.size,
+        type: file.type
+    });
+    
+    // Mostrar información del archivo con formato mejorado
     const fileInfo = document.getElementById('file-info');
+    let sizeText = '';
+    
+    if (file.size < 1024) {
+        sizeText = `${file.size} bytes`;
+    } else if (file.size < 1024 * 1024) {
+        sizeText = `${(file.size / 1024).toFixed(2)} KB`;
+    } else {
+        sizeText = `${(file.size / 1024 / 1024).toFixed(2)} MB`;
+    }
+    
+    const fileIcon = file.type.includes('pdf') ? 'fa-file-pdf' : 
+                     file.type.includes('image') ? 'fa-file-image' : 
+                     'fa-file-alt';
+    
     fileInfo.innerHTML = `
-        <i class="fas fa-file"></i>
-        <strong>${file.name}</strong> 
-        (${(file.size / 1024 / 1024).toFixed(2)} MB)
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <i class="fas ${fileIcon}" style="font-size: 24px; color: #3b82f6;"></i>
+            <div>
+                <strong style="display: block; color: #1e293b;">${file.name}</strong>
+                <small style="color: #64748b;">${sizeText} • ${file.type || 'Tipo desconocido'}</small>
+            </div>
+        </div>
     `;
     fileInfo.style.display = 'block';
     
@@ -1192,10 +1217,10 @@ async function clasificarArchivo() {
         return;
     }
     
-    // Verificar autenticación - DESHABILITADO  
-    // Acceso directo sin verificación
-    
     const soloHS = document.getElementById('solo-hs-archivo').checked;
+    
+    console.log('📤 Clasificando archivo:', archivoSeleccionado.name);
+    console.log('🔧 Modo solo_hs:', soloHS);
     
     showLoading();
     
@@ -1216,78 +1241,40 @@ async function clasificarArchivo() {
         console.log('Data:', JSON.stringify(result, null, 2));
         
         if (!response.ok) {
-            // Manejar errores de autenticación
-            if (response.status === 401) {
-                authToken = null;
-                localStorage.removeItem('authToken');
-                showError('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.');
-                showLoginModal();
-                return;
-            } else if (response.status === 403) {
-                showError(result.mensaje || 'No tienes suficientes tokens o has alcanzado el límite de dispositivos.');
-                return;
-            }
             throw new Error(result.error || 'Error en la clasificación');
         }
         
         if (result.success) {
-            // Actualizar información de consumo si está disponible
-            if (result.tokens_info && userInfo) {
-                if (userInfo.limites) {
-                    userInfo.limites.tokens_consumidos += result.tokens_info.total_tokens;
-                    const tokensText = `${userInfo.limites.tokens_consumidos.toLocaleString()} / ${userInfo.limites.tokens_limite_mensual.toLocaleString()} tokens`;
-                    const tokensElement = document.getElementById('tokens-info');
-                    if (tokensElement) tokensElement.textContent = tokensText;
-                }
-                updatePlanInfo();
+            hideLoading();
+            
+            // Guardar el resultado en la variable global
+            resultadoActual = result.data;
+            
+            // Si es modo solo_hs, mostrar solo el código
+            if (soloHS && result.data.hs) {
+                showResults({ hs: result.data.hs }, null);
+            } else {
+                // Modo completo: mostrar estructura ImportDUA
+                showResults(result.data, null);
             }
             
-            // Mostrar información de tokens consumidos en los resultados
-            showResults(result.data, result.tokens_info);
+            // Scroll suave a los resultados
+            document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            
+            showNotification('✅ Clasificación completada exitosamente', 'success');
         } else {
             throw new Error('No se pudo obtener la clasificación');
         }
         
     } catch (error) {
         console.error('Error:', error);
+        hideLoading();
         showError(`Error al procesar el archivo: ${error.message}`);
     }
 }
 
 // Funciones de exportación
-function convertToXML(data, rootElement = 'clasificacion_arancelaria') {
-    function objectToXML(obj, indent = 0) {
-        let xml = '';
-        const spaces = '  '.repeat(indent);
-        
-        for (const [key, value] of Object.entries(obj)) {
-            const cleanKey = key.replace(/[^a-zA-Z0-9_]/g, '_');
-            
-            if (value === null || value === undefined) {
-                xml += `${spaces}<${cleanKey}></${cleanKey}>\n`;
-            } else if (typeof value === 'object' && !Array.isArray(value)) {
-                xml += `${spaces}<${cleanKey}>\n`;
-                xml += objectToXML(value, indent + 1);
-                xml += `${spaces}</${cleanKey}>\n`;
-            } else if (Array.isArray(value)) {
-                xml += `${spaces}<${cleanKey}>\n`;
-                value.forEach((item, index) => {
-                    if (typeof item === 'object') {
-                        xml += `${spaces}  <item_${index}>\n`;
-                        xml += objectToXML(item, indent + 2);
-                        xml += `${spaces}  </item_${index}>\n`;
-                    } else {
-                        xml += `${spaces}  <item>${escapeXML(item)}</item>\n`;
-                    }
-                });
-                xml += `${spaces}</${cleanKey}>\n`;
-            } else {
-                xml += `${spaces}<${cleanKey}>${escapeXML(value)}</${cleanKey}>\n`;
-            }
-        }
-        return xml;
-    }
-    
+function convertToXML(data, rootElement = 'ImportDUA') {
     function escapeXML(str) {
         if (typeof str !== 'string') str = String(str);
         return str
@@ -1298,14 +1285,48 @@ function convertToXML(data, rootElement = 'clasificacion_arancelaria') {
             .replace(/'/g, '&apos;');
     }
     
+    function objectToXML(obj, indent = 0) {
+        let xml = '';
+        const spaces = '  '.repeat(indent);
+        
+        for (const [key, value] of Object.entries(obj)) {
+            // Saltar campos que no se deben incluir
+            if (key === 'editado' || key === 'fecha_edicion' || key === 'Justificacion') continue;
+            
+            const cleanKey = key.replace(/[^a-zA-Z0-9_]/g, '_');
+            
+            if (value === null || value === undefined || value === '') {
+                xml += `${spaces}<${cleanKey}></${cleanKey}>\n`;
+            } else if (Array.isArray(value)) {
+                // Para arrays, usar el nombre en singular si es plural
+                const itemName = cleanKey.endsWith('s') ? cleanKey.slice(0, -1) : cleanKey;
+                value.forEach((item, index) => {
+                    if (typeof item === 'object') {
+                        xml += `${spaces}<${itemName}>\n`;
+                        xml += objectToXML(item, indent + 1);
+                        xml += `${spaces}</${itemName}>\n`;
+                    } else {
+                        xml += `${spaces}<${itemName}>${escapeXML(item)}</${itemName}>\n`;
+                    }
+                });
+            } else if (typeof value === 'object') {
+                xml += `${spaces}<${cleanKey}>\n`;
+                xml += objectToXML(value, indent + 1);
+                xml += `${spaces}</${cleanKey}>\n`;
+            } else {
+                xml += `${spaces}<${cleanKey}>${escapeXML(value)}</${cleanKey}>\n`;
+            }
+        }
+        return xml;
+    }
+    
+    // Generar XML para estructura ImportDUA
     let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
-    xml += `<${rootElement}>\n`;
+    xml += `<${rootElement} xmlns="http://www.aduanas.gob.do/siga" version="2.0">\n`;
     
     if (Array.isArray(data)) {
-        data.forEach((item, index) => {
-            xml += `  <producto_${index + 1}>\n`;
-            xml += objectToXML(item, 2);
-            xml += `  </producto_${index + 1}>\n`;
+        data.forEach((item) => {
+            xml += objectToXML(item, 1);
         });
     } else {
         xml += objectToXML(data, 1);
@@ -2973,39 +2994,135 @@ function createEditedResultCard(data) {
     return card;
 }
 
-// Función mejorada de exportación
+// Función mejorada de exportación para ImportDUA
 function showExportOptions() {
-    console.log('📤 Iniciando exportación...');
+    console.log('📤 Iniciando exportación ImportDUA...');
     console.log('📊 JSON a exportar:', JSON.stringify(resultadoActual, null, 2));
     
-    // Usar directamente resultadoActual que ya tiene TODAS las ediciones
-    const dataToExport = resultadoActual;
-    
-    if (!dataToExport) {
+    if (!resultadoActual) {
         showNotification('No hay datos para exportar', 'error');
         return;
     }
     
-    // Verificar si es array (múltiples productos)
-    if (Array.isArray(dataToExport)) {
-        // Exportar múltiples productos
-        console.log(`📦 Exportando ${dataToExport.length} productos`);
-        exportMultipleProducts(dataToExport);
-    } else {
-        // Exportar producto único
-        console.log('📄 Exportando producto único');
-        console.log('📊 Data que se enviará a generateXML:', dataToExport);
-        
-        const xmlContent = generateXML(dataToExport);
-        console.log('📝 XML generado completo:', xmlContent);
-        
-        const hsCode = dataToExport.hs || dataToExport.hs_code || 'clasificacion';
-        const fileName = `clasificacion_${String(hsCode).replace(/\./g, '_')}_${new Date().getTime()}.xml`;
-        
-        downloadFile(xmlContent, fileName, 'application/xml');
-        
-        showNotification(`✅ XML exportado correctamente`, 'success');
+    // Generar XML en formato ImportDUA para SIGA
+    const xmlContent = generateImportDUAXML(resultadoActual);
+    console.log('📝 XML ImportDUA generado');
+    
+    const timestamp = new Date().getTime();
+    const fileName = `ImportDUA_${timestamp}.xml`;
+    
+    downloadFile(xmlContent, fileName, 'application/xml');
+    
+    showNotification(`✅ XML ImportDUA exportado correctamente: ${fileName}`, 'success');
+}
+
+// Función para generar XML en formato ImportDUA para SIGA
+function generateImportDUAXML(data) {
+    function escapeXML(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;');
     }
+    
+    function getValue(obj, ...keys) {
+        for (let key of keys) {
+            if (obj && obj[key] !== undefined && obj[key] !== null && obj[key] !== '') {
+                return obj[key];
+            }
+        }
+        return '';
+    }
+    
+    // Si es solo código HS, devolver estructura mínima
+    if (data.hs && Object.keys(data).length <= 2) {
+        return `<?xml version="1.0" encoding="UTF-8"?>
+<ImportDUA xmlns="http://www.aduanas.gob.do/siga" version="2.0">
+    <ImpDeclarationProduct>
+        <HSCode>${escapeXML(data.hs)}</HSCode>
+    </ImpDeclarationProduct>
+</ImportDUA>`;
+    }
+    
+    // Buscar datos en la estructura (puede estar anidado)
+    let impDeclaration = data.ImpDeclaration || {};
+    let impSupplier = data.ImpDeclarationSupplier || {};
+    let impProducts = data.ImpDeclarationProduct || [];
+    let totales = data.TotalesCalculados || {};
+    
+    // Si no hay estructura ImportDUA, buscar en el objeto raíz
+    if (!Array.isArray(impProducts) || impProducts.length === 0) {
+        // Buscar productos en cualquier array del objeto
+        for (let key in data) {
+            if (Array.isArray(data[key]) && data[key].length > 0 && data[key][0].HSCode) {
+                impProducts = data[key];
+                break;
+            }
+        }
+        
+        // Si aún no hay productos, crear uno desde los datos raíz
+        if (impProducts.length === 0) {
+            impProducts = [{
+                HSCode: getValue(data, 'hs', 'HSCode', 'codigo_hs'),
+                ProductName: getValue(data, 'ProductName', 'descripcion_comercial', 'product_name', 'producto'),
+                Qty: getValue(data, 'Qty', 'cantidad', 'quantity') || 1,
+                FOBValue: getValue(data, 'FOBValue', 'valor_fob', 'valor_unitario', 'value'),
+                Weight: getValue(data, 'Weight', 'peso_neto', 'peso', 'weight')
+            }];
+        }
+    }
+    
+    // Construir XML
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<ImportDUA xmlns="http://www.aduanas.gob.do/siga" version="2.0">
+    <ImpDeclaration>
+        <ImportationDate>${escapeXML(getValue(impDeclaration, 'ImportationDate') || new Date().toISOString().split('T')[0])}</ImportationDate>
+        <FOBValue>${escapeXML(getValue(impDeclaration, 'FOBValue', totales.TotalFOB) || 0)}</FOBValue>
+        <Currency>${escapeXML(getValue(impDeclaration, 'Currency') || 'USD')}</Currency>
+        <DispatchType>${escapeXML(getValue(impDeclaration, 'DispatchType') || 'GENERAL')}</DispatchType>
+        <CustomsAdministration>${escapeXML(getValue(impDeclaration, 'CustomsAdministration') || '')}</CustomsAdministration>
+        <EntryPort>${escapeXML(getValue(impDeclaration, 'EntryPort') || '')}</EntryPort>
+    </ImpDeclaration>
+    
+    <ImpDeclarationSupplier>
+        <SupplierName>${escapeXML(getValue(impSupplier, 'SupplierName', 'nombre', 'name'))}</SupplierName>
+        <SupplierAddress>${escapeXML(getValue(impSupplier, 'SupplierAddress', 'direccion', 'address'))}</SupplierAddress>
+        <SupplierPhone>${escapeXML(getValue(impSupplier, 'SupplierPhone', 'telefono', 'phone'))}</SupplierPhone>
+        <SupplierRNC>${escapeXML(getValue(impSupplier, 'SupplierRNC', 'rnc', 'tax_id'))}</SupplierRNC>
+        <SupplierCountry>${escapeXML(getValue(impSupplier, 'SupplierCountry', 'pais', 'country') || 'US')}</SupplierCountry>
+    </ImpDeclarationSupplier>
+`;
+    
+    // Productos
+    impProducts.forEach((product, index) => {
+        xml += `
+    <ImpDeclarationProduct>
+        <ItemNumber>${index + 1}</ItemNumber>
+        <HSCode>${escapeXML(getValue(product, 'HSCode', 'hs', 'codigo_hs'))}</HSCode>
+        <ProductName>${escapeXML(getValue(product, 'ProductName', 'descripcion', 'descripcion_comercial', 'product_name'))}</ProductName>
+        <Qty>${escapeXML(getValue(product, 'Qty', 'cantidad', 'quantity') || 1)}</Qty>
+        <UnitMeasure>${escapeXML(getValue(product, 'UnitMeasure', 'unidad', 'unit') || 'UND')}</UnitMeasure>
+        <FOBValue>${escapeXML(getValue(product, 'FOBValue', 'valor_fob', 'valor_unitario', 'value') || 0)}</FOBValue>
+        <Weight>${escapeXML(getValue(product, 'Weight', 'peso_neto', 'peso', 'weight') || 0)}</Weight>
+        <OriginCountry>${escapeXML(getValue(product, 'OriginCountry', 'pais_origen', 'origin_country') || 'US')}</OriginCountry>
+        <Brand>${escapeXML(getValue(product, 'Brand', 'marca', 'brand'))}</Brand>
+        <Model>${escapeXML(getValue(product, 'Model', 'modelo', 'model'))}</Model>
+    </ImpDeclarationProduct>`;
+    });
+    
+    xml += `
+    
+    <TotalesCalculados>
+        <TotalFOB>${escapeXML(getValue(totales, 'TotalFOB') || impProducts.reduce((sum, p) => sum + (parseFloat(getValue(p, 'FOBValue') || 0) * parseFloat(getValue(p, 'Qty') || 1)), 0).toFixed(2))}</TotalFOB>
+        <TotalCIF>${escapeXML(getValue(totales, 'TotalCIF', 'TotalFOB'))}</TotalCIF>
+        <TotalWeight>${escapeXML(getValue(totales, 'TotalWeight') || impProducts.reduce((sum, p) => sum + parseFloat(getValue(p, 'Weight') || 0), 0).toFixed(2))}</TotalWeight>
+    </TotalesCalculados>
+</ImportDUA>`;
+    
+    return xml;
 }
 
 function exportMultipleProducts(products) {
