@@ -3,6 +3,7 @@ const cors = require('cors');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
+const pdfParse = require('pdf-parse');
 require('dotenv').config();
 const OpenAI = require('openai');
 const { generarXmlImportDUA } = require('./utils/xmlGenerator');
@@ -65,9 +66,10 @@ const upload = multer({
 });
 
 // Función para procesar con la API de Chat Completions (migrado desde Assistants)
-async function clasificarConAsistente(contenido, soloHS = false) {
+async function clasificarConAsistente(contenido, soloHS = false, operationType = 'import') {
   try {
-    console.log('🔄 Iniciando clasificación...');
+    const tipoOperacion = operationType === 'export' ? 'EXPORTACIÓN' : 'IMPORTACIÓN';
+    console.log(`🔄 Iniciando clasificación de ${tipoOperacion}...`);
     
     // Obtener el Prompt ID desde las variables de entorno
     const promptId = process.env.OPENAI_PROMPT_ID;
@@ -78,15 +80,17 @@ async function clasificarConAsistente(contenido, soloHS = false) {
     
     // Construir el mensaje del usuario
     const userMessage = soloHS 
-      ? `Clasifica el siguiente producto y devuelve SOLO el código HS en formato JSON { "hs": "XXXX.XX.XX.XX" }:
+      ? `Clasifica el siguiente producto de ${tipoOperacion} y devuelve SOLO el código HS en formato JSON { "hs": "XXXX.XX.XX.XX" }:
 
 ${contenido}`
-      : `Analiza el siguiente producto/factura y devuelve la estructura ImportDUA completa en formato JSON válido con todos los campos requeridos para SIGA:
+      : `Analiza el siguiente producto/factura de ${tipoOperacion} y devuelve la estructura ImportDUA completa en formato JSON válido con todos los campos requeridos para SIGA:
 
 ${contenido}`;
     
     // System prompt completo para clasificación arancelaria con formato ImportDUA
     const systemPrompt = `Eres un Clasificador Arancelario y Preparador de Datos DUA para la Dirección General de Aduanas de la República Dominicana.
+
+Estás procesando una operación de ${tipoOperacion}.
 
 Trabajas exclusivamente con el Arancel Dominicano basado en la Séptima Enmienda del Sistema Armonizado.
 
@@ -95,9 +99,87 @@ Tu función es preparar la información necesaria para construir un XML ImportDU
 En MODO NORMAL (solo_hs = false):
 - Extrae TODA la información de la factura/documento
 - Clasifica cada producto con código HS correcto para RD
-- Incluye justificación técnica con RGI aplicadas, Notas Legales, partidas alternativas consideradas
-- Devuelve estructura ImportDUA completa con todos los campos (pueden estar vacíos "" si no hay datos)
-- Calcula TotalFOB y TotalCIF correctamente
+- Devuelve EXACTAMENTE esta estructura JSON (todos los campos requeridos, usa "" para campos vacíos):
+
+{
+  "DeclarationDate": "",
+  "ClearanceType": "",
+  "AreaCode": "",
+  "FormNo": "",
+  "BLNo": "",
+  "ManifestNo": "",
+  "ConsigneeCode": "",
+  "ConsigneeName": "",
+  "ConsigneeNationality": "",
+  "CargoControlNo": "",
+  "CommercialInvoiceNo": "",
+  "DestinationLocationCode": "",
+  "EntryPort": "",
+  "DepartureCountryCode": "",
+  "TransportCompanyCode": "",
+  "TransportNationality": "",
+  "TransportMethod": "",
+  "EntryPlanDate": "",
+  "EntryDate": "",
+  "ImporterCode": "",
+  "ImporterName": "",
+  "ImporterNationality": "",
+  "BrokerEmployeeCode": "",
+  "BrokerCompanyCode": "",
+  "DeclarantCode": "",
+  "DeclarantName": "",
+  "DeclarantNationality": "",
+  "RegimenCode": "",
+  "AgreementCode": "",
+  "TotalFOB": "",
+  "InsuranceValue": "",
+  "FreightValue": "",
+  "OtherValue": "",
+  "TotalCIF": "",
+  "TotalWeight": "",
+  "NetWeight": "",
+  "Remark": "",
+  "ImpDeclarationSupplier": {
+    "ForeignSupplierName": "",
+    "ForeignSupplierCode": "",
+    "ForeignSupplierNationality": ""
+  },
+  "ImpDeclarationProduct": [
+    {
+      "HSCode": "",
+      "ProductCode": "",
+      "ProductName": "",
+      "BrandCode": "",
+      "BrandName": "",
+      "ModelCode": "",
+      "ModelName": "",
+      "ProductStatusCode": "",
+      "ProductYear": "",
+      "FOBValue": "",
+      "UnitCode": "",
+      "Qty": "",
+      "Weight": "",
+      "ProductSpecification": "",
+      "TempProductYN": "",
+      "CertificateOrignYN": "",
+      "CertificateOriginNo": "",
+      "OriginCountry": "",
+      "OrganicYN": "",
+      "GradeAlcohol": "",
+      "CustomerSalesPrice": "",
+      "ProductSerialNo": "",
+      "VehicleType": "",
+      "VehicleChassis": "",
+      "VehicleColor": "",
+      "VehicleMotor": "",
+      "VehicleCC": "",
+      "ProductDescription": "",
+      "Remark": ""
+    }
+  ]
+}
+
+IMPORTANTE: Todos los campos numéricos (FOBValue, Qty, Weight, etc.) deben ser strings. Los campos vacíos van como "".
 
 En MODO ESPECIAL (solo_hs = true):
 - Devuelve ÚNICAMENTE: { "hs": "XXXX.XX.XX.XX" }
@@ -476,9 +558,10 @@ Devuelve TODA la información en formato JSON completo y estructurado.`;
 }
 
 // Función para clasificar usando GPT-4o Vision (para PDFs problemáticos e imágenes)
-async function clasificarConVision(base64Data, mimeType, soloHS = false) {
+async function clasificarConVision(base64Data, mimeType, soloHS = false, operationType = 'import') {
   try {
-    console.log('👁️ Iniciando clasificación con Vision API...');
+    const tipoOperacion = operationType === 'export' ? 'EXPORTACIÓN' : 'IMPORTACIÓN';
+    console.log(`🔄 Iniciando clasificación de ${tipoOperacion} con Vision API...`);
     
     // Determinar el tipo de contenido
     let contentType = 'image/jpeg';
@@ -493,15 +576,17 @@ async function clasificarConVision(base64Data, mimeType, soloHS = false) {
     // System prompt para Vision con formato ImportDUA
     const systemPrompt = `Eres un Clasificador Arancelario y Preparador de Datos DUA para la Dirección General de Aduanas de República Dominicana.
 
+Estás procesando una operación de ${tipoOperacion}.
+
 Analiza el documento visual (factura, imagen de producto, etc.) y prepara los datos para ImportDUA.
 
-En MODO NORMAL: Extrae toda la información visible, clasifica cada producto con código HS correcto para RD, incluye justificación técnica detallada. Devuelve estructura ImportDUA completa.
+En MODO NORMAL: Extrae toda la información visible, clasifica cada producto con código HS correcto. Devuelve estructura JSON completa con TODOS los campos ImportDUA (usa "" para campos vacíos, valores numéricos como strings).
 
 En MODO ESPECIAL (solo_hs=true): Devuelve únicamente { "hs": "XXXX.XX.XX.XX" } sin otros campos.`;
 
     const userMessage = soloHS 
-      ? 'Analiza este documento y extrae SOLO el código HS (clasificación arancelaria) en formato JSON { "hs": "XXXX.XX.XX.XX" }'
-      : 'Analiza este documento y devuelve la estructura ImportDUA completa en formato JSON. Incluye ImpDeclaration con datos generales, ImpDeclarationSupplier con proveedor, ImpDeclarationProduct[] con todos los productos (HSCode, ProductName, FOBValue, Qty, Weight, Justificacion con RGI y notas), y TotalesCalculados.';
+      ? `Analiza este documento de ${tipoOperacion} y extrae SOLO el código HS (clasificación arancelaria) en formato JSON { "hs": "XXXX.XX.XX.XX" }`
+      : `Analiza este documento de ${tipoOperacion} y devuelve la estructura ImportDUA completa en formato JSON con TODOS los campos (usa "" para vacíos, valores numéricos como strings): DeclarationDate, ClearanceType, AreaCode, FormNo, BLNo, ManifestNo, ConsigneeCode, ConsigneeName, ConsigneeNationality, CargoControlNo, CommercialInvoiceNo, DestinationLocationCode, EntryPort, DepartureCountryCode, TransportCompanyCode, TransportNationality, TransportMethod, EntryPlanDate, EntryDate, ImporterCode, ImporterName, ImporterNationality, BrokerEmployeeCode, BrokerCompanyCode, DeclarantCode, DeclarantName, DeclarantNationality, RegimenCode, AgreementCode, TotalFOB, InsuranceValue, FreightValue, OtherValue, TotalCIF, TotalWeight, NetWeight, Remark, ImpDeclarationSupplier{ForeignSupplierName, ForeignSupplierCode, ForeignSupplierNationality}, ImpDeclarationProduct[]{HSCode, ProductCode, ProductName, BrandCode, BrandName, ModelCode, ModelName, ProductStatusCode, ProductYear, FOBValue, UnitCode, Qty, Weight, ProductSpecification, TempProductYN, CertificateOrignYN, CertificateOriginNo, OriginCountry, OrganicYN, GradeAlcohol, CustomerSalesPrice, ProductSerialNo, VehicleType, VehicleChassis, VehicleColor, VehicleMotor, VehicleCC, ProductDescription, Remark}.`;
     
     // Construir el mensaje con la imagen/PDF
     const messages = [
@@ -605,7 +690,7 @@ app.get('/', (req, res) => {
 // Clasificar por texto
 app.post('/clasificar', async (req, res) => {
   try {
-    const { producto, solo_hs = false } = req.body;
+    const { producto, solo_hs = false, operationType = 'import' } = req.body;
     
     if (!producto) {
       return res.status(400).json({ 
@@ -613,11 +698,17 @@ app.post('/clasificar', async (req, res) => {
       });
     }
     
-    const resultado = await clasificarConAsistente(producto, solo_hs);
+    // Agregar contexto de exportación si es necesario
+    const productoConContexto = operationType === 'export' 
+      ? `EXPORTACIÓN: ${producto}` 
+      : producto;
+    
+    const resultado = await clasificarConAsistente(productoConContexto, solo_hs, operationType);
     
     res.json({
       success: true,
       data: resultado,
+      operationType: operationType,
       timestamp: new Date().toISOString()
     });
     
@@ -630,153 +721,6 @@ app.post('/clasificar', async (req, res) => {
   }
 });
 
-// Función para analizar PDF usando la Files API de OpenAI (como Assistants)
-async function analizarPdfConOpenAI(pdfPath, filename, soloHS = false) {
-  try {
-    console.log('📤 Subiendo PDF a OpenAI...');
-    
-    // Subir el archivo PDF a OpenAI
-    const file = await openai.files.create({
-      file: fs.createReadStream(pdfPath),
-      purpose: 'assistants'
-    });
-    
-    console.log(`✅ PDF subido con ID: ${file.id}`);
-    
-    // Crear un asistente temporal con File Search
-    console.log('🤖 Creando asistente temporal...');
-    const assistant = await openai.beta.assistants.create({
-      name: "Clasificador Arancelario DUA",
-      instructions: `Eres un Clasificador Arancelario y Preparador de Datos DUA para la Dirección General de Aduanas de República Dominicana.
-
-Analiza el PDF adjunto (factura comercial o documento) y prepara los datos para ImportDUA.
-
-En MODO NORMAL: Extrae TODA la información presente y clasifica cada producto con código HS correcto. Incluye justificación técnica (RGI, Notas Legales, partidas alternativas). Devuelve estructura ImportDUA completa.
-
-En MODO ESPECIAL (solo_hs=true): Devuelve únicamente { "hs": "XXXX.XX.XX.XX" } sin otros campos.`,
-      model: process.env.OPENAI_MODEL || "gpt-4o",
-      tools: [{ type: "file_search" }],
-      response_format: { type: "json_object" }
-    });
-    
-    console.log(`✅ Asistente creado: ${assistant.id}`);
-    
-    // Crear un thread con el archivo
-    console.log('💬 Creando thread...');
-    
-    const userMessage = soloHS 
-      ? "Analiza este PDF y extrae SOLO el código HS de clasificación arancelaria en formato JSON: { \"hs\": \"XXXX.XX.XX.XX\" }"
-      : `Analiza COMPLETAMENTE esta factura comercial PDF y prepara los datos para ImportDUA.
-
-Devuelve la estructura completa ImportDUA en formato JSON con TODOS los campos:
-- ImpDeclaration con datos generales (fechas, valores FOB/CIF, tipo despacho)
-- ImpDeclarationSupplier con datos del proveedor extranjero
-- ImpDeclarationProduct[] con cada producto (HSCode, ProductName, FOBValue, Qty, Weight, etc.)
-- Cada producto DEBE incluir campo Justificacion con: RGI_aplicada, Notas_legales_usadas, Partidas_alternativas_consideradas, Motivo_descartes, Precision_hs, Razon_precision
-- TotalesCalculados con sumas correctas
-
-Extrae TODA la información visible en el documento. Los campos sin datos van como \"\".`;
-    
-    const thread = await openai.beta.threads.create({
-      messages: [
-        {
-          role: "user",
-          content: userMessage,
-          attachments: [
-            {
-              file_id: file.id,
-              tools: [{ type: "file_search" }]
-            }
-          ]
-        }
-      ]
-    });
-    
-    console.log(`✅ Thread creado: ${thread.id}`);
-    
-    // Ejecutar el asistente
-    console.log('▶️ Ejecutando análisis...');
-    const run = await openai.beta.threads.runs.create(thread.id, {
-      assistant_id: assistant.id
-    });
-    
-    // Esperar a que termine
-    let runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
-    let attempts = 0;
-    const maxAttempts = 60;
-    
-    while (runStatus.status !== 'completed' && runStatus.status !== 'failed' && attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      runStatus = await openai.beta.threads.runs.retrieve(thread.id, run.id);
-      console.log(`⏳ Estado: ${runStatus.status}...`);
-      attempts++;
-    }
-    
-    if (runStatus.status === 'failed') {
-      throw new Error(`Análisis falló: ${runStatus.last_error?.message || 'Error desconocido'}`);
-    }
-    
-    if (runStatus.status !== 'completed') {
-      throw new Error('Timeout esperando respuesta del asistente');
-    }
-    
-    // Obtener los mensajes
-    console.log('📥 Obteniendo respuesta...');
-    const messages = await openai.beta.threads.messages.list(thread.id);
-    const assistantMessage = messages.data.find(msg => msg.role === 'assistant');
-    
-    if (!assistantMessage) {
-      throw new Error('No se recibió respuesta del asistente');
-    }
-    
-    const respuesta = assistantMessage.content[0]?.text?.value;
-    
-    console.log(`📊 Tokens utilizados - Input: ${runStatus.usage?.prompt_tokens || 0}, Output: ${runStatus.usage?.completion_tokens || 0}`);
-    
-    // Limpiar recursos
-    console.log('🧹 Limpiando recursos...');
-    await openai.beta.assistants.del(assistant.id);
-    await openai.files.del(file.id);
-    
-    console.log('✅ Análisis completado');
-    
-    // Parsear JSON
-    try {
-      return JSON.parse(respuesta);
-    } catch (parseError) {
-      console.log('⚠️ Error parseando JSON, intentando limpiar...');
-      console.log('📄 Respuesta original:', respuesta.substring(0, 1000));
-      
-      // Intentar extraer JSON del texto
-      const jsonMatch = respuesta.match(/\{.*\}/s);
-      if (jsonMatch) {
-        try {
-          return JSON.parse(jsonMatch[0]);
-        } catch (e) {
-          // Intentar reparar JSON común (comillas simples, comas finales, etc.)
-          let cleanJson = jsonMatch[0]
-            .replace(/,(\s*[}\]])/g, '$1')  // Eliminar comas antes de } o ]
-            .replace(/\n/g, ' ')             // Eliminar saltos de línea
-            .replace(/\r/g, '')              // Eliminar retornos de carro
-            .replace(/\t/g, ' ');            // Reemplazar tabs
-          
-          try {
-            return JSON.parse(cleanJson);
-          } catch (e2) {
-            console.error('❌ No se pudo reparar el JSON');
-            throw new Error('Respuesta no es JSON válido: ' + parseError.message);
-          }
-        }
-      }
-      throw new Error('No se encontró JSON en la respuesta');
-    }
-    
-  } catch (error) {
-    console.error('❌ Error analizando PDF con OpenAI:', error);
-    throw error;
-  }
-}
-
 // Clasificar desde archivo
 app.post('/clasificar-archivo', upload.single('archivo'), async (req, res) => {
   try {
@@ -786,27 +730,32 @@ app.post('/clasificar-archivo', upload.single('archivo'), async (req, res) => {
     
     // Convertir solo_hs a booleano (viene como string desde FormData)
     const solo_hs = req.body.solo_hs === 'true' || req.body.solo_hs === true;
+    const operationType = req.body.operationType || 'import';
     console.log('🔍 Modo solo_hs:', solo_hs, '(tipo:', typeof solo_hs, ')');
+    console.log('📦 Tipo de operación:', operationType);
     let resultado;
     
-    // Procesar según el tipo de archivo
+    // Procesar según el tipo de archivo - TODOS usan Chat Completions con tu Prompt
     if (req.file.mimetype === 'application/pdf') {
-      // PDFs: usar Files API + Assistants (funciona de forma comprobada)
-      console.log('📄 PDF detectado, usando Files API + Assistants...');
-      resultado = await analizarPdfConOpenAI(req.file.path, req.file.originalname, solo_hs);
+      // PDFs: extraer texto y usar Chat Completions
+      console.log('📄 PDF detectado, extrayendo texto para Chat Completions...');
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const pdfData = await pdfParse(fileBuffer);
+      console.log(`📝 Texto extraído: ${pdfData.text.length} caracteres`);
+      resultado = await clasificarConAsistente(pdfData.text, solo_hs, operationType);
       
     } else if (req.file.mimetype.includes('image')) {
       // Imágenes: usar Vision API
       console.log('🖼️ Imagen detectada, usando Vision API...');
-      const imageBuffer = fs.readFileSync(req.file.path);
-      const base64Data = imageBuffer.toString('base64');
-      resultado = await clasificarConVision(base64Data, req.file.mimetype, solo_hs);
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const base64Data = fileBuffer.toString('base64');
+      resultado = await clasificarConVision(base64Data, req.file.mimetype, solo_hs, operationType);
       
     } else if (req.file.mimetype.includes('text')) {
-      // Archivos de texto: usar Chat Completions
-      console.log('📝 Texto detectado, usando Chat Completions...');
+      // Archivos de texto: usar Chat Completions con tu Prompt
+      console.log('📝 Texto detectado, usando Chat Completions con tu Prompt...');
       const contenido = fs.readFileSync(req.file.path, 'utf8');
-      resultado = await clasificarConAsistente(contenido, solo_hs);
+      resultado = await clasificarConAsistente(contenido, solo_hs, operationType);
       
     } else {
       throw new Error(`Tipo de archivo no soportado: ${req.file.mimetype}`);
@@ -819,6 +768,7 @@ app.post('/clasificar-archivo', upload.single('archivo'), async (req, res) => {
       success: true,
       archivo: req.file.originalname,
       data: resultado,
+      operationType: operationType,
       timestamp: new Date().toISOString()
     });
     
