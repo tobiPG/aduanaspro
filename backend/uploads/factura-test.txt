@@ -1,0 +1,57 @@
+Factura Comercial
+Invoice No: INV-2024-001
+Fecha: 15 de noviembre de 2024
+
+Vendedor / Seller:
+Tech Supplies International Inc.
+123 Main Street, Miami, FL 33101, USA
+Tax ID: US-123456789
+Tel: +1 305-555-0100
+
+Comprador / Buyer:
+Importadora Dominicana S.R.L.
+Av. Winston Churchill #45, Santo Domingo, República Dominicana
+RNC: 130-12345-6
+Tel: +1 809-555-0200
+
+Productos / Products:
+
+1. Laptop Dell Latitude 5540
+   - Procesador Intel Core i7-1355U
+   - 16GB RAM DDR4
+   - 512GB SSD NVMe
+   - Pantalla 15.6" Full HD
+   - Windows 11 Pro
+   Cantidad: 10 unidades
+   Precio unitario: USD 850.00
+   Precio total: USD 8,500.00
+   País de origen: China
+   Código HS: 8471.30.00.00
+
+2. Mouse inalámbrico Logitech MX Master 3S
+   - Conexión Bluetooth y USB
+   - Sensor 8000 DPI
+   - Batería recargable
+   Cantidad: 20 unidades
+   Precio unitario: USD 99.00
+   Precio total: USD 1,980.00
+   País de origen: México
+   Código HS: 8471.60.80.00
+
+Subtotal: USD 10,480.00
+Flete / Freight (FOB Miami): USD 320.00
+Seguro / Insurance: USD 105.00
+
+TOTAL CIF: USD 10,905.00
+
+Términos:
+- Incoterm: CIF Santo Domingo
+- Forma de pago: Carta de crédito 30 días
+- Puerto de embarque: Miami, FL, USA
+- Puerto de destino: Puerto de Haina, República Dominicana
+- Peso bruto: 185 kg
+- Peso neto: 165 kg
+
+Observaciones:
+Mercancía nueva en cajas originales selladas.
+Todos los productos incluyen garantía internacional de 1 año.

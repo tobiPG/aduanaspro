@@ -190,6 +190,19 @@ En MODO ESPECIAL (solo_hs = true):
     let retryCount = 0;
     const maxRetries = 3;
     
+    console.log('\n🔵 ========== LLAMADA A CHAT COMPLETIONS API ==========');
+    console.log('📤 REQUEST:');
+    console.log(JSON.stringify({
+      model: process.env.OPENAI_MODEL || 'gpt-4o',
+      messages: [
+        { role: 'system', content: systemPrompt.substring(0, 200) + '...' },
+        { role: 'user', content: userMessage.substring(0, 200) + '...' }
+      ],
+      temperature: 0.3,
+      max_tokens: 4000,
+      response_format: { type: 'json_object' }
+    }, null, 2));
+    
     while (retryCount < maxRetries) {
       try {
         completion = await openai.chat.completions.create({
@@ -218,13 +231,16 @@ En MODO ESPECIAL (solo_hs = true):
       }
     }
     
+    console.log('\n📥 RESPONSE COMPLETA:');
+    console.log(JSON.stringify(completion, null, 2));
+    
     // Obtener información de uso de tokens
     const tokensUsados = {
       input: completion.usage?.prompt_tokens || 0,
       output: completion.usage?.completion_tokens || 0
     };
     
-    console.log(`📊 Tokens utilizados - Input: ${tokensUsados.input}, Output: ${tokensUsados.output}, Total: ${tokensUsados.input + tokensUsados.output}`);
+    console.log(`\n📊 Tokens utilizados - Input: ${tokensUsados.input}, Output: ${tokensUsados.output}, Total: ${tokensUsados.input + tokensUsados.output}`);
     
     // Obtener la respuesta
     const respuesta = completion.choices[0]?.message?.content;
@@ -233,7 +249,9 @@ En MODO ESPECIAL (solo_hs = true):
       throw new Error('No se recibió respuesta del modelo');
     }
     
-    console.log('📝 Respuesta del modelo recibida');
+    console.log('\n📝 CONTENIDO DE LA RESPUESTA:');
+    console.log(respuesta);
+    console.log('🔵 ========== FIN RESPUESTA API ==========\n');
     
     try {
       // Intentar parsear como JSON
@@ -616,6 +634,24 @@ En MODO ESPECIAL (solo_hs=true): Devuelve únicamente { "hs": "XXXX.XX.XX.XX" } 
     let retryCount = 0;
     const maxRetries = 3;
     
+    console.log('\n🟢 ========== LLAMADA A VISION API (GPT-4O) ==========');
+    console.log('📤 REQUEST (con imagen base64):');
+    console.log(JSON.stringify({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: systemPrompt.substring(0, 200) + '...' },
+        { 
+          role: 'user', 
+          content: [
+            { type: 'text', text: userMessage.substring(0, 200) + '...' },
+            { type: 'image_url', image_url: { url: `data:${contentType};base64,[BASE64_TRUNCATED]` }}
+          ]
+        }
+      ],
+      temperature: 0.3,
+      max_tokens: 4000
+    }, null, 2));
+    
     while (retryCount < maxRetries) {
       try {
         completion = await openai.chat.completions.create({
@@ -638,12 +674,15 @@ En MODO ESPECIAL (solo_hs=true): Devuelve únicamente { "hs": "XXXX.XX.XX.XX" } 
       }
     }
     
+    console.log('\n📥 VISION RESPONSE COMPLETA:');
+    console.log(JSON.stringify(completion, null, 2));
+    
     const tokensUsados = {
       input: completion.usage?.prompt_tokens || 0,
       output: completion.usage?.completion_tokens || 0
     };
     
-    console.log(`📊 Tokens utilizados (Vision) - Input: ${tokensUsados.input}, Output: ${tokensUsados.output}, Total: ${tokensUsados.input + tokensUsados.output}`);
+    console.log(`\n📊 Tokens utilizados (Vision) - Input: ${tokensUsados.input}, Output: ${tokensUsados.output}, Total: ${tokensUsados.input + tokensUsados.output}`);
     
     const respuesta = completion.choices[0]?.message?.content;
     
@@ -651,7 +690,9 @@ En MODO ESPECIAL (solo_hs=true): Devuelve únicamente { "hs": "XXXX.XX.XX.XX" } 
       throw new Error('No se recibió respuesta del modelo Vision');
     }
     
-    console.log('📝 Respuesta del modelo Vision recibida');
+    console.log('\n📝 CONTENIDO DE LA RESPUESTA VISION:');
+    console.log(respuesta);
+    console.log('🟢 ========== FIN RESPUESTA VISION API ==========\n');
     
     try {
       const resultado = JSON.parse(respuesta);
@@ -687,6 +728,97 @@ app.get('/', (req, res) => {
   });
 });
 
+// Función para clasificar texto usando Responses API
+async function clasificarTextoConResponsesAPI(textoProducto, soloHS = false, operationType = 'import') {
+  try {
+    const promptId = process.env.OPENAI_PROMPT_ID;
+    
+    if (!promptId) {
+      throw new Error('OPENAI_PROMPT_ID no está configurado en .env');
+    }
+    
+    console.log('\n🟣 ========== LLAMADA A RESPONSES API (TEXTO) ==========');
+    console.log('📋 Usando Prompt ID:', promptId);
+    console.log('📦 Modo solo_hs:', soloHS);
+    console.log('📦 Tipo operación:', operationType);
+    console.log('📝 Texto:', textoProducto.substring(0, 200) + '...');
+    
+    console.log('📤 REQUEST a Responses API:');
+    console.log(JSON.stringify({
+      model: process.env.OPENAI_MODEL || 'gpt-4o',
+      prompt: { id: promptId },
+      input: textoProducto.substring(0, 200) + '...'
+    }, null, 2));
+    
+    let response;
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    while (retryCount < maxRetries) {
+      try {
+        response = await openai.responses.create({
+          model: process.env.OPENAI_MODEL || 'gpt-4o',
+          prompt: {
+            id: promptId
+          },
+          input: [
+            {
+              role: 'user',
+              content: [
+                { type: 'input_text', text: textoProducto }
+              ]
+            }
+          ]
+        });
+        break;
+      } catch (error) {
+        if (error.status === 429 && retryCount < maxRetries - 1) {
+          const waitTime = Math.pow(2, retryCount) * 5;
+          console.log(`⏳ Rate limit detectado. Esperando ${waitTime}s antes de reintentar...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+          retryCount++;
+        } else {
+          console.error('❌ Error en Responses API:', error);
+          throw error;
+        }
+      }
+    }
+    
+    console.log('\n📥 RESPONSES API - RESPUESTA COMPLETA:');
+    console.log(JSON.stringify(response, null, 2));
+    
+    const outputText = response.output_text || response.output?.[0]?.content?.[0]?.text;
+    
+    if (!outputText) {
+      console.error('❌ No se encontró texto en la respuesta');
+      console.error('Respuesta completa:', JSON.stringify(response, null, 2));
+      throw new Error('No se recibió respuesta del modelo');
+    }
+    
+    console.log('\n📝 CONTENIDO DE LA RESPUESTA:');
+    console.log(outputText);
+    console.log(`📊 Tokens utilizados: ${response.usage?.total_tokens || 'N/A'}`);
+    console.log('🟣 ========== FIN RESPONSES API ==========\n');
+    
+    try {
+      const resultado = JSON.parse(outputText);
+      console.log('✅ JSON parseado correctamente');
+      return resultado;
+    } catch (parseError) {
+      console.log('❌ Error al parsear JSON:', parseError.message);
+      const jsonMatch = outputText.match(/\{.*\}/s);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+      throw new Error('Respuesta no es JSON válido');
+    }
+    
+  } catch (error) {
+    console.error('❌ Error en clasificarTextoConResponsesAPI:', error);
+    throw error;
+  }
+}
+
 // Clasificar por texto
 app.post('/clasificar', async (req, res) => {
   try {
@@ -698,12 +830,8 @@ app.post('/clasificar', async (req, res) => {
       });
     }
     
-    // Agregar contexto de exportación si es necesario
-    const productoConContexto = operationType === 'export' 
-      ? `EXPORTACIÓN: ${producto}` 
-      : producto;
-    
-    const resultado = await clasificarConAsistente(productoConContexto, solo_hs, operationType);
+    // Usar Responses API con tu prompt guardado
+    const resultado = await clasificarTextoConResponsesAPI(producto, solo_hs, operationType);
     
     res.json({
       success: true,
@@ -721,6 +849,114 @@ app.post('/clasificar', async (req, res) => {
   }
 });
 
+// Función para clasificar usando Responses API con tu Prompt guardado y archivo PDF
+async function clasificarConResponsesAPIConArchivo(filePath, filename, mimeType, soloHS = false, operationType = 'import') {
+  let fileId = null;
+  
+  try {
+    const promptId = process.env.OPENAI_PROMPT_ID;
+    
+    if (!promptId) {
+      throw new Error('OPENAI_PROMPT_ID no está configurado en .env');
+    }
+    
+    console.log('\n🟣 ========== LLAMADA A RESPONSES API CON ARCHIVO ==========');
+    console.log('📋 Usando Prompt ID:', promptId);
+    console.log('📦 Modo solo_hs:', soloHS);
+    console.log('📦 Tipo operación:', operationType);
+    console.log('📄 Archivo:', filename);
+    console.log('📄 Tipo MIME:', mimeType);
+    
+    // Subir archivo a OpenAI
+    console.log('📤 Subiendo archivo a OpenAI...');
+    const file = await openai.files.create({
+      file: fs.createReadStream(filePath),
+      purpose: 'assistants'
+    });
+    
+    fileId = file.id;
+    console.log(`✅ Archivo subido con ID: ${fileId}`);
+    
+    console.log('📤 REQUEST a Responses API con archivo:');
+    console.log(JSON.stringify({
+      model: process.env.OPENAI_MODEL || 'gpt-4o',
+      prompt: { id: promptId },
+      file_id: fileId
+    }, null, 2));
+    
+    let response;
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    while (retryCount < maxRetries) {
+      try {
+        response = await openai.responses.create({
+          model: process.env.OPENAI_MODEL || 'gpt-4o',
+          prompt: {
+            id: promptId
+          },
+          input: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'input_file',
+                  file_id: fileId
+                }
+              ]
+            }
+          ]
+        });
+        break;
+      } catch (error) {
+        if (error.status === 429 && retryCount < maxRetries - 1) {
+          const waitTime = Math.pow(2, retryCount) * 5;
+          console.log(`⏳ Rate limit detectado. Esperando ${waitTime}s antes de reintentar...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+          retryCount++;
+        } else {
+          console.error('❌ Error en Responses API:', error);
+          throw error;
+        }
+      }
+    }
+    
+    console.log('\n📥 RESPONSES API - RESPUESTA COMPLETA:');
+    console.log(JSON.stringify(response, null, 2));
+    
+    // Extraer el texto de la respuesta
+    const outputText = response.output_text || response.output?.[0]?.content?.[0]?.text;
+    
+    if (!outputText) {
+      console.error('❌ No se encontró texto en la respuesta');
+      console.error('Respuesta completa:', JSON.stringify(response, null, 2));
+      throw new Error('No se recibió respuesta del modelo');
+    }
+    
+    console.log('\n📝 CONTENIDO DE LA RESPUESTA:');
+    console.log(outputText);
+    console.log(`📊 Tokens utilizados: ${response.usage?.total_tokens || 'N/A'}`);
+    console.log('🟣 ========== FIN RESPONSES API ==========\n');
+    
+    try {
+      const resultado = JSON.parse(outputText);
+      console.log('✅ JSON parseado correctamente');
+      return resultado;
+    } catch (parseError) {
+      console.log('❌ Error al parsear JSON:', parseError.message);
+      const jsonMatch = outputText.match(/\{.*\}/s);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+      throw new Error('Respuesta no es JSON válido');
+    }
+    
+  } catch (error) {
+    console.error('❌ Error en clasificarConResponsesAPI:', error);
+    throw error;
+  }
+}
+
 // Clasificar desde archivo
 app.post('/clasificar-archivo', upload.single('archivo'), async (req, res) => {
   try {
@@ -735,27 +971,24 @@ app.post('/clasificar-archivo', upload.single('archivo'), async (req, res) => {
     console.log('📦 Tipo de operación:', operationType);
     let resultado;
     
-    // Procesar según el tipo de archivo - TODOS usan Chat Completions con tu Prompt
+    // Procesar según el tipo de archivo - USAR RESPONSES API
     if (req.file.mimetype === 'application/pdf') {
-      // PDFs: extraer texto y usar Chat Completions
-      console.log('📄 PDF detectado, extrayendo texto para Chat Completions...');
-      const fileBuffer = fs.readFileSync(req.file.path);
-      const pdfData = await pdfParse(fileBuffer);
-      console.log(`📝 Texto extraído: ${pdfData.text.length} caracteres`);
-      resultado = await clasificarConAsistente(pdfData.text, solo_hs, operationType);
+      // PDFs: enviar directamente a Responses API
+      console.log('📄 PDF detectado, enviando directamente a Responses API...');
+      resultado = await clasificarConResponsesAPIConArchivo(req.file.path, req.file.originalname, req.file.mimetype, solo_hs, operationType);
       
     } else if (req.file.mimetype.includes('image')) {
-      // Imágenes: usar Vision API
+      // Imágenes: usar Vision API (no soportado por Responses API aún)
       console.log('🖼️ Imagen detectada, usando Vision API...');
       const fileBuffer = fs.readFileSync(req.file.path);
       const base64Data = fileBuffer.toString('base64');
       resultado = await clasificarConVision(base64Data, req.file.mimetype, solo_hs, operationType);
       
     } else if (req.file.mimetype.includes('text')) {
-      // Archivos de texto: usar Chat Completions con tu Prompt
-      console.log('📝 Texto detectado, usando Chat Completions con tu Prompt...');
+      // Archivos de texto: usar Responses API
+      console.log('📝 Texto detectado, usando Responses API...');
       const contenido = fs.readFileSync(req.file.path, 'utf8');
-      resultado = await clasificarConAsistente(contenido, solo_hs, operationType);
+      resultado = await clasificarTextoConResponsesAPI(contenido, solo_hs, operationType);
       
     } else {
       throw new Error(`Tipo de archivo no soportado: ${req.file.mimetype}`);
@@ -786,6 +1019,118 @@ app.post('/clasificar-archivo', upload.single('archivo'), async (req, res) => {
     
     res.status(500).json({ 
       error: 'Error al procesar el archivo',
+      details: error.message 
+    });
+  }
+});
+
+// Endpoint para generar XML desde JSON
+// Validar campos obligatorios para SIGA
+function validarCamposObligatoriosSIGA(jsonData) {
+  const errores = [];
+  const data = jsonData.ImportDUA?.ImpDeclaration || jsonData;
+  
+  // Validar ClearanceType con formato
+  if (!data.ClearanceType || data.ClearanceType.trim() === '') {
+    errores.push('ClearanceType es obligatorio (ej: IC38-002)');
+  } else if (!/^IC\d{2}-\d{3}$/.test(data.ClearanceType)) {
+    errores.push('ClearanceType debe tener formato IC##-### (ej: IC38-002, IC04-001)');
+  }
+  
+  // Validar ImporterCode con formato RNC
+  if (!data.ImporterCode || data.ImporterCode.trim() === '') {
+    errores.push('ImporterCode es obligatorio (debe comenzar con RNC)');
+  } else if (!data.ImporterCode.startsWith('RNC')) {
+    errores.push('ImporterCode debe comenzar con RNC seguido de números');
+  } else if (!/^RNC\d+$/.test(data.ImporterCode)) {
+    errores.push('ImporterCode debe tener formato RNC seguido de números (ej: RNC214101830141)');
+  }
+  
+  // Validar DeclarantCode con formato RNC
+  if (!data.DeclarantCode || data.DeclarantCode.trim() === '') {
+    errores.push('DeclarantCode es obligatorio (debe comenzar con RNC)');
+  } else if (!data.DeclarantCode.startsWith('RNC')) {
+    errores.push('DeclarantCode debe comenzar con RNC seguido de números');
+  } else if (!/^RNC\d+$/.test(data.DeclarantCode)) {
+    errores.push('DeclarantCode debe tener formato RNC seguido de números (ej: RNC214101830141)');
+  }
+  
+  // Validar RegimenCode
+  if (!data.RegimenCode || data.RegimenCode.toString().trim() === '') {
+    errores.push('RegimenCode es obligatorio (ej: 1, 4, 70)');
+  } else if (!/^\d+$/.test(data.RegimenCode.toString())) {
+    errores.push('RegimenCode debe ser un número entero (ej: 1, 4, 70)');
+  }
+  
+  // Validar campos numéricos
+  if (data.TotalFOB === undefined || data.TotalFOB === null || data.TotalFOB === '') {
+    errores.push('TotalFOB es obligatorio (formato decimal: 90513.5000)');
+  }
+  
+  if (data.InsuranceValue === undefined || data.InsuranceValue === null || data.InsuranceValue === '') {
+    errores.push('InsuranceValue es obligatorio (formato decimal: 900.0000, usar 0.00 si no aplica)');
+  }
+  
+  if (data.FreightValue === undefined || data.FreightValue === null || data.FreightValue === '') {
+    errores.push('FreightValue es obligatorio (formato decimal: 8200.0000, usar 0.00 si no aplica)');
+  }
+  
+  // Validar productos
+  const products = data.ImpDeclarationProduct || [];
+  products.forEach((product, index) => {
+    const productNum = index + 1;
+    
+    if (!product.ProductStatusCode || product.ProductStatusCode.trim() === '') {
+      errores.push(`Producto ${productNum}: ProductStatusCode es obligatorio (ej: IC04-001)`);
+    }
+    
+    // Validar booleanos
+    if (product.TempProductYN !== 'true' && product.TempProductYN !== 'false' && 
+        product.TempProductYN !== true && product.TempProductYN !== false) {
+      errores.push(`Producto ${productNum}: TempProductYN debe ser true o false`);
+    }
+    
+    if (product.OrganicYN !== 'true' && product.OrganicYN !== 'false' && 
+        product.OrganicYN !== true && product.OrganicYN !== false) {
+      errores.push(`Producto ${productNum}: OrganicYN debe ser true o false`);
+    }
+  });
+  
+  return errores;
+}
+
+app.post('/generar-xml', async (req, res) => {
+  try {
+    const jsonData = req.body;
+    
+    if (!jsonData) {
+      return res.status(400).json({ error: 'No se recibieron datos JSON' });
+    }
+    
+    console.log('📤 Generando XML ImportDUA...');
+    console.log('📊 Datos recibidos:', JSON.stringify(jsonData, null, 2));
+    
+    // Validar campos obligatorios
+    const errores = validarCamposObligatoriosSIGA(jsonData);
+    if (errores.length > 0) {
+      console.log('❌ Errores de validación:', errores);
+      return res.status(400).json({ 
+        error: 'Campos obligatorios faltantes o inválidos',
+        errores: errores 
+      });
+    }
+    
+    const xml = generarXmlImportDUA(jsonData);
+    
+    console.log('✅ XML generado exitosamente');
+    
+    res.set('Content-Type', 'application/xml');
+    res.send(xml);
+    
+  } catch (error) {
+    console.error('❌ Error generando XML:', error);
+    res.status(500).json({ 
+      error: 'Error al generar XML',
       details: error.message 
     });
   }
