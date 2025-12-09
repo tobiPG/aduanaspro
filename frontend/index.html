@@ -34,7 +34,15 @@
                             <span id="devices-info">0 / 0 dispositivos</span>
                         </div>
                     </div>
-                    <button class="btn-logout" onclick="logout()">
+                    <button class="btn-secondary" onclick="showTab('historial')" style="margin-right: 10px;">
+                        <i class="fas fa-history"></i>
+                        Ver Historial
+                    </button>
+                    <button id="btn-admin-panel" class="btn-warning" onclick="window.location.href='admin-panel.html'" style="display: none; margin-right: 10px;">
+                        <i class="fas fa-crown"></i>
+                        Panel Admin
+                    </button>
+                    <button class="btn-logout" onclick="logout()" style="display: none;">
                         <i class="fas fa-sign-out-alt"></i>
                         Cerrar Sesión
                     </button>
@@ -42,9 +50,22 @@
             </div>
         </header>
 
+        <!-- Alert Banner (se muestra cuando hay alertas de tokens) -->
+        <div id="alert-banner" style="display: none;">
+            <div class="alert-banner-content">
+                <i class="alert-banner-icon fas fa-exclamation-triangle"></i>
+                <div class="alert-banner-text">
+                    <span class="alert-banner-title" id="alert-title">Alerta de Tokens</span>
+                    <span class="alert-banner-message" id="alert-message">Mensaje de alerta</span>
+                </div>
+            </div>
+            <button class="alert-banner-close" onclick="ocultarAlertaBanner()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
         <!-- Login Modal -->
-        <!-- Modal de Login - DESHABILITADO -->
-        <div id="login-modal" class="modal" style="display: none !important;">
+        <div id="login-modal" class="modal" style="display: block;">
             <div class="modal-content">
                 <div class="modal-header">
                     <h2><i class="fas fa-lock"></i> Iniciar Sesión</h2>
@@ -52,28 +73,42 @@
                 </div>
                 
                 <div class="modal-body">
-                    <div class="form-group">
-                        <label for="login-email">
-                            <i class="fas fa-envelope"></i>
-                            Correo Electrónico
-                        </label>
-                        <input type="email" id="login-email" placeholder="correo@empresa.com" value="demo@importadora.com">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="login-password">
-                            <i class="fas fa-key"></i>
-                            Contraseña
-                        </label>
-                        <input type="password" id="login-password" placeholder="Tu contraseña" value="demo123">
-                    </div>
-                    
-                    <div id="login-error" class="login-error" style="display: none;"></div>
-                    
-                    <button class="btn-primary btn-full" onclick="performLogin()" id="btn-login">
-                        <i class="fas fa-sign-in-alt"></i>
-                        Iniciar Sesión
-                    </button>
+                    <form id="login-form">
+                        <div class="form-group">
+                            <label for="login-email">
+                                <i class="fas fa-envelope"></i>
+                                Correo Electrónico
+                            </label>
+                            <input type="email" id="login-email" placeholder="correo@empresa.com" value="demo@importadora.com" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="login-password">
+                                <i class="fas fa-key"></i>
+                                Contraseña
+                            </label>
+                            <input type="password" id="login-password" placeholder="Tu contraseña" value="demo123" required>
+                        </div>
+                        
+                        <div class="forgot-password-link">
+                            <a href="#" onclick="mostrarRecoveryModal(); return false;">
+                                <i class="fas fa-question-circle"></i>
+                                ¿Olvidaste tu contraseña?
+                            </a>
+                        </div>
+                        
+                        <div id="login-error" class="login-error" style="display: none;"></div>
+                        
+                        <button type="submit" class="btn-primary btn-full" id="btn-login">
+                            <i class="fas fa-sign-in-alt"></i>
+                            Iniciar Sesión
+                        </button>
+                        
+                        <button type="button" class="btn-secondary btn-full" onclick="continuarSinAutenticacion()" style="margin-top: 10px;">
+                            <i class="fas fa-play-circle"></i>
+                            Continuar sin Cuenta (Modo Demo)
+                        </button>
+                    </form>
                     
                     <div class="demo-info">
                         <h4><i class="fas fa-info-circle"></i> Cuenta Demo</h4>
@@ -81,8 +116,142 @@
                         <ul>
                             <li>Email: demo@importadora.com</li>
                             <li>Contraseña: demo123</li>
-                            <li>Plan: Pro (1,000,000 tokens/mes)</li>
+                            <li>Plan: Pro (200,000 tokens/mes)</li>
+                            <li>Tokens restantes: 150,000 (75%)</li>
                         </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2FA Modal -->
+        <div id="2fa-modal" class="modal" style="display: none;">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2><i class="fas fa-shield-alt"></i> Autenticación de Dos Factores</h2>
+                    <p>Ingresa tu código de verificación</p>
+                </div>
+                
+                <div class="modal-body">
+                    <form id="2fa-form">
+                        <div class="form-group">
+                            <label for="2fa-code">
+                                <i class="fas fa-key"></i>
+                                Código de 6 dígitos
+                            </label>
+                            <input type="text" id="2fa-code" placeholder="123456" maxlength="8" required autocomplete="off">
+                            <small>Ingresa el código de tu app de autenticación</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="2fa-backup-code">
+                                Usar código de respaldo
+                            </label>
+                        </div>
+                        
+                        <div id="2fa-error" class="login-error" style="display: none;"></div>
+                        
+                        <button type="submit" class="btn-primary btn-full" id="btn-2fa">
+                            <i class="fas fa-check"></i>
+                            Verificar
+                        </button>
+                        
+                        <button type="button" class="btn-secondary btn-full" onclick="cancelar2FA()">
+                            <i class="fas fa-times"></i>
+                            Cancelar
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Password Recovery Modal -->
+        <div id="recovery-modal" class="modal" style="display: none;">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2><i class="fas fa-key"></i> Recuperar Contraseña</h2>
+                    <p>Te enviaremos un link de recuperación a tu correo</p>
+                </div>
+                
+                <div class="modal-body">
+                    <form id="recovery-form">
+                        <div class="form-group">
+                            <label for="recovery-email">
+                                <i class="fas fa-envelope"></i>
+                                Correo Electrónico
+                            </label>
+                            <input type="email" id="recovery-email" placeholder="tu_correo@empresa.com" required>
+                        </div>
+                        
+                        <div id="recovery-message" class="success-message" style="display: none;"></div>
+                        <div id="recovery-error" class="login-error" style="display: none;"></div>
+                        
+                        <button type="submit" class="btn-primary btn-full" id="btn-recovery">
+                            <i class="fas fa-paper-plane"></i>
+                            Enviar Link de Recuperación
+                        </button>
+                        
+                        <button type="button" class="btn-secondary btn-full" onclick="cerrarRecoveryModal()">
+                            <i class="fas fa-arrow-left"></i>
+                            Volver al Login
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2FA Setup Modal -->
+        <div id="2fa-setup-modal" class="modal" style="display: none;">
+            <div class="modal-content modal-medium">
+                <div class="modal-header">
+                    <h2><i class="fas fa-shield-alt"></i> Configurar Autenticación de Dos Factores</h2>
+                    <button class="modal-close" onclick="cerrar2FASetupModal()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                
+                <div class="modal-body">
+                    <div id="2fa-setup-step1" class="setup-step">
+                        <h3>Paso 1: Escanea el código QR</h3>
+                        <p>Usa Google Authenticator, Microsoft Authenticator o Authy para escanear:</p>
+                        <div id="qr-code-container" class="qr-container">
+                            <!-- QR code se inserta aquí -->
+                        </div>
+                        <p class="secret-key">
+                            <strong>O ingresa este código manualmente:</strong><br>
+                            <code id="2fa-secret"></code>
+                        </p>
+                        
+                        <h3>Paso 2: Códigos de Respaldo</h3>
+                        <p>Guarda estos códigos en un lugar seguro. Puedes usar cada uno solo una vez:</p>
+                        <div id="backup-codes-container" class="backup-codes">
+                            <!-- Códigos se insertan aquí -->
+                        </div>
+                        
+                        <h3>Paso 3: Verifica el código</h3>
+                        <form id="2fa-verify-form">
+                            <div class="form-group">
+                                <label for="2fa-verify-code">
+                                    <i class="fas fa-key"></i>
+                                    Ingresa el código de 6 dígitos
+                                </label>
+                                <input type="text" id="2fa-verify-code" placeholder="123456" maxlength="6" required>
+                            </div>
+                            
+                            <div id="2fa-verify-error" class="login-error" style="display: none;"></div>
+                            <div id="2fa-verify-success" class="success-message" style="display: none;"></div>
+                            
+                            <button type="submit" class="btn-primary btn-full">
+                                <i class="fas fa-check"></i>
+                                Activar 2FA
+                            </button>
+                            
+                            <button type="button" class="btn-secondary btn-full" onclick="cerrar2FASetupModal()">
+                                <i class="fas fa-times"></i>
+                                Cancelar
+                            </button>
+                        </form>
                     </div>
                 </div>
             </div>
@@ -107,6 +276,14 @@
                 <button class="tab-button" onclick="showTab('planes')">
                     <i class="fas fa-credit-card"></i>
                     Gestionar Plan
+                </button>
+                <button class="tab-button" onclick="showTab('historial')" id="tab-historial-btn" style="display: none;">
+                    <i class="fas fa-history"></i>
+                    Historial
+                </button>
+                <button class="tab-button" onclick="showTab('configuracion')" id="tab-config-btn" style="display: none;">
+                    <i class="fas fa-cog"></i>
+                    Configuración
                 </button>
             </div>
 
@@ -978,6 +1155,240 @@
                 </div>
             </div>
 
+            <!-- Tab Content: Historial -->
+            <div id="tab-historial" class="tab-content" style="display: none;">
+                <div class="historial-section">
+                    <div class="section-header">
+                        <div class="section-title">
+                            <i class="fas fa-history"></i>
+                            <h3>Historial de Clasificaciones</h3>
+                        </div>
+                        <p class="section-description">
+                            Revisa todas tus clasificaciones anteriores, busca por nombre de archivo o código HS.
+                        </p>
+                    </div>
+
+                    <!-- Filtros y búsqueda -->
+                    <div class="historial-filters">
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="historial-search" placeholder="Buscar por archivo, código HS o producto...">
+                        </div>
+                        <div class="filter-group">
+                            <select id="historial-tipo" class="filter-select">
+                                <option value="">Todos los tipos</option>
+                                <option value="import">Importación</option>
+                                <option value="export">Exportación</option>
+                            </select>
+                            <button class="btn-primary" onclick="buscarHistorial()">
+                                <i class="fas fa-filter"></i>
+                                Filtrar
+                            </button>
+                            <button class="btn-secondary" onclick="limpiarFiltrosHistorial()">
+                                <i class="fas fa-times"></i>
+                                Limpiar
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Estadísticas rápidas -->
+                    <div id="historial-stats" class="historial-stats" style="display: none;">
+                        <div class="stat-card">
+                            <i class="fas fa-box"></i>
+                            <div class="stat-info">
+                                <span class="stat-value" id="stat-productos">0</span>
+                                <span class="stat-label">Productos Clasificados</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <i class="fas fa-file-alt"></i>
+                            <div class="stat-info">
+                                <span class="stat-value" id="stat-total">0</span>
+                                <span class="stat-label">Total Clasificaciones</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <i class="fas fa-calendar-day"></i>
+                            <div class="stat-info">
+                                <span class="stat-value" id="stat-mes">0</span>
+                                <span class="stat-label">Este Mes</span>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <i class="fas fa-file-export"></i>
+                            <div class="stat-info">
+                                <span class="stat-value" id="stat-exportados">0</span>
+                                <span class="stat-label">Exportados</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Lista de clasificaciones -->
+                    <div id="historial-loading" class="loading" style="display: none;">
+                        <div class="spinner"></div>
+                        <p>Cargando historial...</p>
+                    </div>
+
+                    <div id="historial-lista" class="historial-lista">
+                        <!-- Se llenará dinámicamente con JavaScript -->
+                    </div>
+
+                    <!-- Paginación -->
+                    <div id="historial-pagination" class="pagination" style="display: none;">
+                        <button class="btn-secondary" onclick="cambiarPaginaHistorial(-1)" id="btn-prev-page">
+                            <i class="fas fa-chevron-left"></i>
+                            Anterior
+                        </button>
+                        <span id="page-info">Página 1 de 1</span>
+                        <button class="btn-secondary" onclick="cambiarPaginaHistorial(1)" id="btn-next-page">
+                            Siguiente
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Content: Configuración -->
+            <div id="tab-configuracion" class="tab-content" style="display: none;">
+                <div class="config-section">
+                    <div class="section-header">
+                        <div class="section-title">
+                            <i class="fas fa-cog"></i>
+                            <h3>Configuración de Valores por Defecto</h3>
+                        </div>
+                        <p class="section-description">
+                            Define valores que se aplicarán automáticamente a todas las clasificaciones de tu empresa.
+                        </p>
+                    </div>
+
+                    <!-- Alerta de información -->
+                    <div class="config-info-alert">
+                        <i class="fas fa-info-circle"></i>
+                        <div>
+                            <strong>¿Qué son los valores por defecto?</strong>
+                            <p>Estos valores se aplicarán automáticamente a todas las clasificaciones que realices, ahorrándote tiempo al no tener que ingresarlos manualmente cada vez.</p>
+                        </div>
+                    </div>
+
+                    <!-- Formulario de configuración -->
+                    <div class="config-form-container">
+                        <form id="defaults-form" class="defaults-form">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="default-clearance-type">
+                                        <i class="fas fa-file-invoice"></i>
+                                        Tipo de Despacho (ClearanceType)
+                                    </label>
+                                    <input type="text" id="default-clearance-type" placeholder="Ej: IC01-001" pattern="IC\d{2}-\d{3}">
+                                    <small>Formato: IC##-### (Ej: IC01-001)</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="default-regimen-code">
+                                        <i class="fas fa-list-ol"></i>
+                                        Código de Régimen (RegimenCode)
+                                    </label>
+                                    <input type="text" id="default-regimen-code" placeholder="Ej: 10" pattern="\d+">
+                                    <small>Solo números (Ej: 10, 40)</small>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="default-importer-code">
+                                        <i class="fas fa-building"></i>
+                                        Código de Importador (ImporterCode)
+                                    </label>
+                                    <input type="text" id="default-importer-code" placeholder="Ej: RNC123456789" pattern="RNC\d+">
+                                    <small>Formato: RNC seguido de números</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="default-declarant-code">
+                                        <i class="fas fa-user-tie"></i>
+                                        Código de Declarante (DeclarantCode)
+                                    </label>
+                                    <input type="text" id="default-declarant-code" placeholder="Ej: RNC987654321" pattern="RNC\d+">
+                                    <small>Formato: RNC seguido de números</small>
+                                </div>
+                            </div>
+
+                            <div class="form-actions">
+                                <button type="button" class="btn-secondary" onclick="cargarDefaults()">
+                                    <i class="fas fa-sync"></i>
+                                    Recargar
+                                </button>
+                                <button type="submit" class="btn-primary">
+                                    <i class="fas fa-save"></i>
+                                    Guardar Configuración
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Seguridad: 2FA -->
+                    <div class="security-section" style="margin-top: 40px;">
+                        <div class="section-header">
+                            <div class="section-title">
+                                <i class="fas fa-shield-alt"></i>
+                                <h3>Seguridad de la Cuenta</h3>
+                            </div>
+                            <p class="section-description">
+                                Protege tu cuenta con autenticación de dos factores (2FA)
+                            </p>
+                        </div>
+
+                        <div class="config-info-alert">
+                            <i class="fas fa-lock"></i>
+                            <div>
+                                <strong>Autenticación de Dos Factores (2FA)</strong>
+                                <p>Agrega una capa adicional de seguridad. Además de tu contraseña, necesitarás un código generado por tu teléfono para iniciar sesión.</p>
+                            </div>
+                        </div>
+
+                        <div id="2fa-status-container" class="twofa-status">
+                            <div class="status-badge" id="2fa-status-badge">
+                                <i class="fas fa-shield-alt"></i>
+                                <span id="2fa-status-text">Cargando...</span>
+                            </div>
+                            <div class="status-actions">
+                                <button id="btn-enable-2fa" class="btn-primary" onclick="mostrar2FASetup()" style="display: none;">
+                                    <i class="fas fa-plus"></i>
+                                    Activar 2FA
+                                </button>
+                                <button id="btn-disable-2fa" class="btn-danger" onclick="deshabilitar2FA()" style="display: none;">
+                                    <i class="fas fa-times"></i>
+                                    Desactivar 2FA
+                                </button>
+                                <button id="btn-regenerate-codes" class="btn-secondary" onclick="regenerarBackupCodes()" style="display: none;">
+                                    <i class="fas fa-sync"></i>
+                                    Regenerar Códigos de Respaldo
+                                </button>
+                            </div>
+                            <div id="2fa-info" class="twofa-info" style="display: none;">
+                                <p><i class="fas fa-calendar-alt"></i> Activado: <span id="2fa-activated-date"></span></p>
+                                <p><i class="fas fa-ticket-alt"></i> Códigos de respaldo restantes: <span id="2fa-backup-remaining"></span></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Top 10 Códigos HS más usados -->
+                    <div class="top-hs-section">
+                        <h4>
+                            <i class="fas fa-chart-bar"></i>
+                            Top 10 Códigos HS Más Clasificados
+                        </h4>
+                        <div id="top-hs-loading" class="loading-small" style="display: none;">
+                            <div class="spinner-small"></div>
+                            <span>Cargando estadísticas...</span>
+                        </div>
+                        <div id="top-hs-list" class="top-hs-list">
+                            <!-- Se llenará dinámicamente -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Loading -->
             <div id="loading" class="loading" style="display: none;">
                 <div class="spinner"></div>
@@ -989,16 +1400,34 @@
                 <div class="results-header">
                     <h3><i class="fas fa-check-circle"></i> Resultado de la Clasificación</h3>
                     <div class="results-actions">
-                        <button class="btn-secondary" onclick="showEditForm()" id="btn-edit-result">
-                            <i class="fas fa-edit"></i>
-                            Editar Campos
-                        </button>
                         <button class="btn-primary" onclick="showExportOptions()" id="btn-export" style="display: none;">
                             <i class="fas fa-download"></i>
                             Exportar XML
                         </button>
                     </div>
                 </div>
+                
+                <!-- Panel de validación de campos obligatorios -->
+                <div id="validation-panel" class="validation-panel" style="display: none;">
+                    <div class="validation-header">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>Campos obligatorios faltantes para exportar XML</span>
+                    </div>
+                    <div id="validation-errors" class="validation-errors"></div>
+                </div>
+                
+                <!-- Panel de advertencia para campos opcionales -->
+                <div id="warning-panel" class="warning-panel" style="display: none;">
+                    <div class="warning-header">
+                        <i class="fas fa-info-circle"></i>
+                        <span>Campos opcionales vacíos detectados</span>
+                    </div>
+                    <div class="warning-message">
+                        Los campos marcados en amarillo no son obligatorios para exportar el XML al SIGA. 
+                        Sin embargo, estos campos permanecerán vacíos en la declaración si no se completan.
+                    </div>
+                </div>
+                
                 <div id="results-content"></div>
             </div>
 
@@ -1207,6 +1636,7 @@
         </footer>
     </div>
 
+    <!-- <script src="auth.js"></script> -->
     <script src="script.js"></script>
 </body>
 </html>

@@ -60,6 +60,13 @@ async function createIndexes() {
         // Índices para planes
         await db.collection('planes').createIndex({ id: 1 }, { unique: true });
         
+        // Índices para clasificaciones
+        await db.collection('clasificaciones').createIndex({ clasificacion_id: 1 }, { unique: true });
+        await db.collection('clasificaciones').createIndex({ empresa_id: 1 });
+        await db.collection('clasificaciones').createIndex({ usuario_id: 1 });
+        await db.collection('clasificaciones').createIndex({ fecha_creacion: -1 });
+        await db.collection('clasificaciones').createIndex({ tipo_operacion: 1 });
+        
         console.log('📋 Índices creados correctamente');
     } catch (error) {
         console.error('⚠️ Error creando índices:', error);

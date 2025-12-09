@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Forzar Actualización</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #1d4ed8;
+        }
+        .success {
+            background: #10b981;
+            padding: 15px;
+            border-radius: 6px;
+            color: white;
+            margin-top: 20px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🔄 Actualizar Sesión</h1>
+        <p>Esto limpiará tu sesión actual y te permitirá iniciar sesión nuevamente con datos actualizados.</p>
+        
+        <button onclick="limpiarYRecargar()">🗑️ Limpiar Sesión y Recargar</button>
+        <button onclick="volverAlInicio()">← Volver al Inicio</button>
+        
+        <div id="success" class="success">
+            ✅ Sesión limpiada. Redirigiendo...
+        </div>
+    </div>
+
+    <script>
+        function limpiarYRecargar() {
+            // Limpiar localStorage
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('userInfo');
+            
+            // Mostrar mensaje
+            document.getElementById('success').style.display = 'block';
+            
+            // Redirigir después de 1 segundo
+            setTimeout(() => {
+                window.location.href = 'index.html';
+            }, 1000);
+        }
+        
+        function volverAlInicio() {
+            window.location.href = 'index.html';
+        }
+    </script>
+</body>
+</html>

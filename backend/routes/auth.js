@@ -1,11 +1,15 @@
 const express = require('express');
 const AuthService = require('../services/authService');
 const { extraerDeviceFingerprint, extraerIP, verificarAuth } = require('../middleware/auth');
+const { loginLimiter, registerLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
+// Log de debug para verificar que las rutas se cargan
+console.log('✅ Rutas de auth cargadas');
+
 // Registro de nuevos usuarios
-router.post('/registro', extraerDeviceFingerprint, extraerIP, async (req, res) => {
+router.post('/registro', registerLimiter, extraerDeviceFingerprint, extraerIP, async (req, res) => {
     try {
         const { nombre, correo, contrasena, empresa_id } = req.body;
         
@@ -51,17 +55,25 @@ router.post('/registro', extraerDeviceFingerprint, extraerIP, async (req, res) =
 });
 
 // Inicio de sesión
-router.post('/login', extraerDeviceFingerprint, extraerIP, async (req, res) => {
+router.post('/login', loginLimiter, extraerDeviceFingerprint, extraerIP, async (req, res) => {
+    console.log('🔵 POST /api/auth/login recibido');
+    console.log('  Body:', req.body);
+    console.log('  Device FP:', req.deviceFingerprint);
+    console.log('  IP:', req.clientIP);
+    
     try {
         const { correo, contrasena } = req.body;
         
         // Validar datos requeridos
         if (!correo || !contrasena) {
+            console.log('❌ Faltan credenciales');
             return res.status(400).json({
                 error: 'missing_credentials',
                 mensaje: 'Correo y contraseña son requeridos.'
             });
         }
+        
+        console.log('🔐 Intentando login para:', correo);
         
         const resultado = await AuthService.iniciarSesion(
             correo.trim(),
@@ -69,6 +81,8 @@ router.post('/login', extraerDeviceFingerprint, extraerIP, async (req, res) => {
             req.deviceFingerprint,
             req.clientIP
         );
+        
+        console.log('📤 Resultado de login:', resultado.success ? '✅ SUCCESS' : '❌ FAILED');
         
         if (resultado.success) {
             res.status(200).json(resultado);
@@ -81,7 +95,45 @@ router.post('/login', extraerDeviceFingerprint, extraerIP, async (req, res) => {
         }
         
     } catch (error) {
-        console.error('Error en endpoint de login:', error);
+        console.error('❌ Error en endpoint de login:', error);
+        res.status(500).json({
+            error: 'server_error',
+            mensaje: 'Error interno del servidor.'
+        });
+    }
+});
+
+// Completar login con 2FA
+router.post('/login-2fa', loginLimiter, extraerDeviceFingerprint, extraerIP, async (req, res) => {
+    try {
+        const { usuarioId, codigo, esBackupCode } = req.body;
+        
+        if (!usuarioId || !codigo) {
+            return res.status(400).json({
+                error: 'missing_fields',
+                mensaje: 'Usuario ID y código son requeridos.'
+            });
+        }
+        
+        const resultado = await AuthService.completarLoginCon2FA(
+            usuarioId,
+            codigo,
+            esBackupCode || false,
+            req.deviceFingerprint,
+            req.clientIP
+        );
+        
+        if (resultado.success) {
+            res.status(200).json(resultado);
+        } else {
+            const statusCode = resultado.error === 'invalid_2fa_code' ? 401 :
+                              resultado.error === 'devices_limit' || 
+                              resultado.error === 'quota_exceeded' ? 403 : 500;
+            res.status(statusCode).json(resultado);
+        }
+        
+    } catch (error) {
+        console.error('Error en endpoint de login 2FA:', error);
         res.status(500).json({
             error: 'server_error',
             mensaje: 'Error interno del servidor.'
@@ -141,13 +193,18 @@ router.get('/verificar', verificarAuth, async (req, res) => {
         
         const tokensRestantes = empresa.tokens_limite_mensual - empresa.tokens_consumidos;
         
+        // Verificar alertas de tokens
+        const AlertasService = require('../services/alertasService');
+        const alertasInfo = await AlertasService.verificarTokens(empresa.empresa_id);
+        
         res.status(200).json({
             success: true,
             usuario: {
                 usuario_id: usuario.usuario_id,
                 nombre: usuario.nombre,
                 correo: usuario.correo,
-                empresa_id: usuario.empresa_id
+                empresa_id: usuario.empresa_id,
+                rol: usuario.rol || 'user'
             },
             empresa: {
                 empresa_id: empresa.empresa_id,
@@ -165,7 +222,8 @@ router.get('/verificar', verificarAuth, async (req, res) => {
                 tokens_restantes: tokensRestantes,
                 dispositivos_activos: sesionesActivas,
                 dispositivos_limite: plan.dispositivos_concurrentes
-            }
+            },
+            alerta: alertasInfo.alerta || null
         });
         
     } catch (error) {

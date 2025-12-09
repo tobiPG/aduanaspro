@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Device Fingerprint</title>
+</head>
+<body>
+    <h1>Test de Generación de Device Fingerprint</h1>
+    
+    <button onclick="testFingerprint()">Generar Fingerprint</button>
+    <button onclick="clearStorage()">Limpiar localStorage</button>
+    
+    <div id="results" style="margin-top: 20px; font-family: monospace;"></div>
+    
+    <script>
+        function generateDeviceFingerprint() {
+            // Intentar obtener un fingerprint guardado (PERMANENTE)
+            let fingerprint = localStorage.getItem('deviceFingerprint');
+            
+            if (!fingerprint) {
+                // Generar uno nuevo basado en características del navegador
+                const nav = navigator;
+                const screen = window.screen;
+                
+                const components = [
+                    nav.userAgent,
+                    nav.language,
+                    screen.colorDepth,
+                    screen.width + 'x' + screen.height,
+                    new Date().getTimezoneOffset(),
+                    !!window.sessionStorage,
+                    !!window.localStorage
+                ];
+                
+                console.log('Components used for fingerprint:', components);
+                
+                // Crear un hash simple (SIN Date.now() para que sea consistente)
+                const str = components.join('|');
+                let hash = 0;
+                for (let i = 0; i < str.length; i++) {
+                    const char = str.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash;
+                }
+                
+                // Usar solo el hash, sin timestamp, para que sea permanente
+                fingerprint = 'fp_' + Math.abs(hash).toString(36);
+                
+                // Guardar de forma PERMANENTE en localStorage
+                localStorage.setItem('deviceFingerprint', fingerprint);
+                console.log('🆕 Nuevo device fingerprint generado:', fingerprint);
+            } else {
+                console.log('♻️ Usando device fingerprint existente:', fingerprint);
+            }
+            
+            return fingerprint;
+        }
+        
+        function testFingerprint() {
+            const fp = generateDeviceFingerprint();
+            const stored = localStorage.getItem('deviceFingerprint');
+            
+            const results = document.getElementById('results');
+            results.innerHTML += `
+                <div style="border: 1px solid #ccc; padding: 10px; margin: 5px 0;">
+                    <strong>Timestamp:</strong> ${new Date().toLocaleTimeString()}<br>
+                    <strong>Generado:</strong> ${fp}<br>
+                    <strong>En localStorage:</strong> ${stored}<br>
+                    <strong>Match:</strong> ${fp === stored ? '✅ SÍ' : '❌ NO'}
+                </div>
+            `;
+        }
+        
+        function clearStorage() {
+            localStorage.clear();
+            console.log('🗑️ localStorage limpiado');
+            document.getElementById('results').innerHTML = '<div style="color: red;">localStorage limpiado - genera un nuevo fingerprint</div>';
+        }
+    </script>
+</body>
+</html>

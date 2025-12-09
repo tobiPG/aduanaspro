@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Administración - Clasificador Arancelario RD</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <link href="admin.css" rel="stylesheet">
+</head>
+<body>
+    <div class="admin-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <i class="fas fa-shield-alt"></i>
+                <h2>Panel Admin</h2>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" onclick="showSection('dashboard')">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#" class="nav-item" onclick="showSection('empresas')">
+                    <i class="fas fa-building"></i>
+                    <span>Empresas</span>
+                </a>
+                <a href="#" class="nav-item" onclick="showSection('usuarios')">
+                    <i class="fas fa-users"></i>
+                    <span>Usuarios</span>
+                </a>
+                <a href="#" class="nav-item" onclick="showSection('planes')">
+                    <i class="fas fa-credit-card"></i>
+                    <span>Planes</span>
+                </a>
+                <a href="#" class="nav-item" onclick="showSection('historial')">
+                    <i class="fas fa-history"></i>
+                    <span>Historial</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="admin-profile">
+                    <i class="fas fa-user-shield"></i>
+                    <div>
+                        <p class="admin-name" id="admin-name">Admin</p>
+                        <p class="admin-email" id="admin-email">admin@test.com</p>
+                    </div>
+                </div>
+                <button class="btn-logout" onclick="logout()">
+                    <i class="fas fa-sign-out-alt"></i>
+                    Cerrar Sesión
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="content-header">
+                <div class="header-left">
+                    <h1 id="section-title">Dashboard General</h1>
+                    <p id="section-subtitle">Estadísticas y métricas del sistema</p>
+                </div>
+                <div class="header-right">
+                    <button class="btn-icon" onclick="refreshData()">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                    <button class="btn-icon" onclick="window.location.href='index.html'">
+                        <i class="fas fa-home"></i>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Dashboard Section -->
+            <section id="section-dashboard" class="content-section active">
+                <!-- Stats Cards -->
+                <div class="stats-grid">
+                    <div class="stat-card stat-blue">
+                        <div class="stat-icon">
+                            <i class="fas fa-building"></i>
+                        </div>
+                        <div class="stat-content">
+                            <p class="stat-label">Empresas Activas</p>
+                            <h3 class="stat-value" id="stat-empresas">0</h3>
+                            <p class="stat-change" id="stat-empresas-change"></p>
+                        </div>
+                    </div>
+
+                    <div class="stat-card stat-green">
+                        <div class="stat-icon">
+                            <i class="fas fa-users"></i>
+                        </div>
+                        <div class="stat-content">
+                            <p class="stat-label">Usuarios Activos</p>
+                            <h3 class="stat-value" id="stat-usuarios">0</h3>
+                            <p class="stat-change" id="stat-usuarios-change"></p>
+                        </div>
+                    </div>
+
+                    <div class="stat-card stat-purple">
+                        <div class="stat-icon">
+                            <i class="fas fa-file-alt"></i>
+                        </div>
+                        <div class="stat-content">
+                            <p class="stat-label">Clasificaciones</p>
+                            <h3 class="stat-value" id="stat-clasificaciones">0</h3>
+                            <p class="stat-change">Este mes: <span id="stat-clasificaciones-mes">0</span></p>
+                        </div>
+                    </div>
+
+                    <div class="stat-card stat-orange">
+                        <div class="stat-icon">
+                            <i class="fas fa-coins"></i>
+                        </div>
+                        <div class="stat-content">
+                            <p class="stat-label">Tokens Consumidos</p>
+                            <h3 class="stat-value" id="stat-tokens">0</h3>
+                            <p class="stat-change" id="stat-tokens-change"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts Row 1 -->
+                <div class="charts-row">
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3>Clasificaciones por Día</h3>
+                            <select id="periodo-clasificaciones" onchange="actualizarGraficas()">
+                                <option value="7d">Últimos 7 días</option>
+                                <option value="30d" selected>Últimos 30 días</option>
+                                <option value="90d">Últimos 90 días</option>
+                            </select>
+                        </div>
+                        <canvas id="chart-clasificaciones"></canvas>
+                    </div>
+
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3>Consumo de Tokens</h3>
+                            <select id="periodo-tokens" onchange="actualizarGraficas()">
+                                <option value="7d">Últimos 7 días</option>
+                                <option value="30d" selected>Últimos 30 días</option>
+                                <option value="90d">Últimos 90 días</option>
+                            </select>
+                        </div>
+                        <canvas id="chart-tokens"></canvas>
+                    </div>
+                </div>
+
+                <!-- Charts Row 2 -->
+                <div class="charts-row">
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3>Distribución de Planes</h3>
+                        </div>
+                        <canvas id="chart-planes"></canvas>
+                    </div>
+
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3>Top 10 Empresas por Consumo</h3>
+                        </div>
+                        <canvas id="chart-top-empresas"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Empresas Section -->
+            <section id="section-empresas" class="content-section">
+                <div class="section-toolbar">
+                    <button class="btn-primary" onclick="mostrarModalEmpresa()">
+                        <i class="fas fa-plus"></i>
+                        Nueva Empresa
+                    </button>
+                    <div class="toolbar-filters">
+                        <select id="filter-empresa-plan" onchange="cargarEmpresas()">
+                            <option value="">Todos los planes</option>
+                            <option value="Starter">Starter</option>
+                            <option value="Pro">Pro</option>
+                            <option value="Business">Business</option>
+                            <option value="Enterprise">Enterprise</option>
+                        </select>
+                        <select id="filter-empresa-estado" onchange="cargarEmpresas()">
+                            <option value="">Todos los estados</option>
+                            <option value="true">Activas</option>
+                            <option value="false">Inactivas</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Empresa</th>
+                                <th>Plan</th>
+                                <th>Usuarios</th>
+                                <th>Clasificaciones</th>
+                                <th>Tokens</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-empresas">
+                            <tr>
+                                <td colspan="7" class="loading-cell">Cargando...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Usuarios Section -->
+            <section id="section-usuarios" class="content-section">
+                <div class="section-toolbar">
+                    <button class="btn-primary" onclick="mostrarModalUsuario()">
+                        <i class="fas fa-plus"></i>
+                        Nuevo Usuario
+                    </button>
+                    <div class="toolbar-filters">
+                        <select id="filter-usuario-rol" onchange="cargarUsuarios()">
+                            <option value="">Todos los roles</option>
+                            <option value="user">Usuario</option>
+                            <option value="admin">Administrador</option>
+                        </select>
+                        <select id="filter-usuario-estado" onchange="cargarUsuarios()">
+                            <option value="">Todos los estados</option>
+                            <option value="true">Activos</option>
+                            <option value="false">Inactivos</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Usuario</th>
+                                <th>Email</th>
+                                <th>Empresa</th>
+                                <th>Rol</th>
+                                <th>Sesiones</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-usuarios">
+                            <tr>
+                                <td colspan="7" class="loading-cell">Cargando...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Planes Section -->
+            <section id="section-planes" class="content-section">
+                <div class="planes-grid">
+                    <!-- Se llenará dinámicamente -->
+                </div>
+            </section>
+
+            <!-- Historial Section -->
+            <section id="section-historial" class="content-section">
+                <div class="section-toolbar">
+                    <div class="toolbar-filters" style="width: 100%;">
+                        <select id="filter-historial-empresa" onchange="cargarHistorialAdmin()" style="flex: 1;">
+                            <option value="">Todas las empresas</option>
+                        </select>
+                        <select id="filter-historial-tipo" onchange="cargarHistorialAdmin()">
+                            <option value="">Todos los tipos</option>
+                            <option value="import">Importación</option>
+                            <option value="export">Exportación</option>
+                        </select>
+                        <input type="date" id="filter-historial-desde" onchange="cargarHistorialAdmin()" placeholder="Desde">
+                        <input type="date" id="filter-historial-hasta" onchange="cargarHistorialAdmin()" placeholder="Hasta">
+                        <button class="btn-secondary" onclick="limpiarFiltrosHistorial()">
+                            <i class="fas fa-redo"></i> Limpiar
+                        </button>
+                    </div>
+                </div>
+
+                <div class="stats-row" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px;">
+                    <div class="stat-mini">
+                        <i class="fas fa-file-alt"></i>
+                        <div>
+                            <p>Total Clasificaciones</p>
+                            <h4 id="stat-historial-total">0</h4>
+                        </div>
+                    </div>
+                    <div class="stat-mini">
+                        <i class="fas fa-building"></i>
+                        <div>
+                            <p>Empresas Activas</p>
+                            <h4 id="stat-historial-empresas">0</h4>
+                        </div>
+                    </div>
+                    <div class="stat-mini">
+                        <i class="fas fa-coins"></i>
+                        <div>
+                            <p>Tokens Consumidos</p>
+                            <h4 id="stat-historial-tokens">0</h4>
+                        </div>
+                    </div>
+                    <div class="stat-mini">
+                        <i class="fas fa-calendar-day"></i>
+                        <div>
+                            <p>Hoy</p>
+                            <h4 id="stat-historial-hoy">0</h4>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Empresa</th>
+                                <th>Usuario</th>
+                                <th>Archivo</th>
+                                <th>Tipo</th>
+                                <th>Productos</th>
+                                <th>Tokens</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-historial-admin">
+                            <tr>
+                                <td colspan="8" class="loading-cell">Cargando...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="historial-pagination" class="pagination-controls" style="margin-top: 20px; text-align: center;">
+                    <!-- Paginación se agregará dinámicamente -->
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modal Nueva/Editar Empresa -->
+    <div id="modal-empresa" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3 id="modal-empresa-title">Nueva Empresa</h3>
+                <button class="modal-close" onclick="cerrarModalEmpresa()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <form id="form-empresa" class="modal-form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Nombre de la Empresa *</label>
+                        <input type="text" id="empresa-nombre" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Plan *</label>
+                        <select id="empresa-plan" required>
+                            <option value="Starter">Starter - $10/mes</option>
+                            <option value="Pro">Pro - $45/mes</option>
+                            <option value="Business">Business - $215/mes</option>
+                            <option value="Enterprise">Enterprise - $860/mes</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Fecha Inicio Período *</label>
+                        <input type="date" id="empresa-periodo-inicio" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Fecha Fin Período *</label>
+                        <input type="date" id="empresa-periodo-fin" required>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn-secondary" onclick="cerrarModalEmpresa()">Cancelar</button>
+                    <button type="submit" class="btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Nuevo/Editar Usuario -->
+    <div id="modal-usuario" class="modal">
+        <div class="modal-content modal-medium">
+            <div class="modal-header">
+                <h3 id="modal-usuario-title">Nuevo Usuario</h3>
+                <button class="modal-close" onclick="cerrarModalUsuario()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <form id="form-usuario" class="modal-form">
+                <div class="form-group">
+                    <label>Nombre Completo *</label>
+                    <input type="text" id="usuario-nombre" required>
+                </div>
+                <div class="form-group">
+                    <label>Email *</label>
+                    <input type="email" id="usuario-email" required>
+                </div>
+                <div class="form-group">
+                    <label>Empresa *</label>
+                    <select id="usuario-empresa" required>
+                        <!-- Se llenará dinámicamente -->
+                    </select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Rol *</label>
+                        <select id="usuario-rol" required>
+                            <option value="user">Usuario</option>
+                            <option value="admin">Administrador</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Contraseña *</label>
+                        <input type="password" id="usuario-password" required>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn-secondary" onclick="cerrarModalUsuario()">Cancelar</button>
+                    <button type="submit" class="btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Detalle Empresa -->
+    <div id="modal-detalle-empresa" class="modal">
+        <div class="modal-content modal-xlarge">
+            <div class="modal-header">
+                <h3 id="detalle-empresa-nombre">Detalle de Empresa</h3>
+                <button class="modal-close" onclick="cerrarModalDetalle()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div id="detalle-empresa-content" class="detalle-content">
+                <div class="detalle-grid">
+                    <div class="detalle-item">
+                        <label>ID de Empresa:</label>
+                        <span id="detalle-empresa-id"></span>
+                    </div>
+                    <div class="detalle-item">
+                        <label>Plan:</label>
+                        <span id="detalle-empresa-plan"></span>
+                    </div>
+                    <div class="detalle-item">
+                        <label>Estado:</label>
+                        <span id="detalle-empresa-estado"></span>
+                    </div>
+                    <div class="detalle-item">
+                        <label>Usuarios:</label>
+                        <span id="detalle-empresa-usuarios"></span>
+                    </div>
+                    <div class="detalle-item">
+                        <label>Clasificaciones Totales:</label>
+                        <span id="detalle-empresa-clasificaciones"></span>
+                    </div>
+                    <div class="detalle-item">
+                        <label>Tokens (Consumido/Límite):</label>
+                        <span id="detalle-empresa-tokens"></span>
+                    </div>
+                    <div class="detalle-item">
+                        <label>Periodo Actual:</label>
+                        <span id="detalle-empresa-periodo"></span>
+                    </div>
+                </div>
+
+                <div class="detalle-section">
+                    <h4>Historial de Consumo (Últimos 6 meses)</h4>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Periodo</th>
+                                <th>Clasificaciones</th>
+                                <th>Tokens</th>
+                                <th>% Uso</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-historial-consumo">
+                            <tr><td colspan="4" class="loading-cell">Cargando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn-warning" onclick="resetearConsumo()">
+                        <i class="fas fa-redo"></i> Resetear Consumo
+                    </button>
+                    <button type="button" class="btn-secondary" onclick="cerrarModalDetalle()">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+    <script src="admin.js"></script>
+</body>
+</html>

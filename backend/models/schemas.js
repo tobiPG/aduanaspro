@@ -20,7 +20,23 @@ const empresaSchema = {
     periodo_inicio: { type: 'string', required: true }, // ISO date string
     periodo_fin: { type: 'string', required: true },     // ISO date string
     activa: { type: 'boolean', default: true },
-    fecha_creacion: { type: 'string', default: () => new Date().toISOString() }
+    fecha_creacion: { type: 'string', default: () => new Date().toISOString() },
+    // Configuración de valores default para DUA
+    config_defaults: { 
+        type: 'object', 
+        default: {},
+        // Estructura esperada:
+        // {
+        //   ClearanceType: "IC38-002",
+        //   ImporterCode: "RNC214101830141",
+        //   ImporterName: "Empresa XYZ",
+        //   DeclarantCode: "RNC214101830141",
+        //   DeclarantName: "Empresa XYZ",
+        //   RegimenCode: "1",
+        //   AreaCode: "10150",
+        //   ... otros campos comunes
+        // }
+    }
 };
 
 // Esquema para Usuarios
@@ -30,6 +46,7 @@ const usuarioSchema = {
     nombre: { type: 'string', required: true },
     correo: { type: 'string', required: true },
     contrasena_hash: { type: 'string', required: true },
+    rol: { type: 'string', default: 'user' }, // 'admin' o 'user'
     activo: { type: 'boolean', default: true },
     fecha_creacion: { type: 'string', default: () => new Date().toISOString() }
 };
@@ -58,6 +75,21 @@ const consumoSchema = {
     ts: { type: 'string', required: true },
     origen: { type: 'string', required: true },
     items: { type: 'number', default: 1, min: 1 }
+};
+
+// Esquema para Clasificaciones (Historial)
+const clasificacionSchema = {
+    clasificacion_id: { type: 'string', required: true },
+    empresa_id: { type: 'string', required: true },
+    usuario_id: { type: 'string', required: true },
+    nombre_archivo: { type: 'string', required: false },
+    tipo_operacion: { type: 'string', required: true }, // 'import' o 'export'
+    resultado: { type: 'object', required: true }, // JSON completo de la clasificación
+    productos: { type: 'array', required: false }, // Array simplificado para búsqueda rápida
+    fecha_creacion: { type: 'string', required: true },
+    editado: { type: 'boolean', default: false },
+    exportado: { type: 'boolean', default: false },
+    fecha_exportacion: { type: 'string', required: false }
 };
 
 // Función para validar datos según esquema
@@ -136,6 +168,10 @@ function validarConsumo(data) {
     return errores;
 }
 
+function validarClasificacion(data) {
+    return validarEsquema(data, clasificacionSchema);
+}
+
 // Generar IDs únicos
 function generarId(prefijo = '') {
     const timestamp = Date.now().toString(36);
@@ -149,10 +185,12 @@ module.exports = {
     usuarioSchema,
     sesionSchema,
     consumoSchema,
+    clasificacionSchema,
     validarPlan,
     validarEmpresa,
     validarUsuario,
     validarSesion,
     validarConsumo,
+    validarClasificacion,
     generarId
 };

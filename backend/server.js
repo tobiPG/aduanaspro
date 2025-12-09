@@ -7,6 +7,8 @@ const pdfParse = require('pdf-parse');
 require('dotenv').config();
 const OpenAI = require('openai');
 const { generarXmlImportDUA } = require('./utils/xmlGenerator');
+const { connectDB } = require('./config/database');
+const { verificarAuthOpcional } = require('./middleware/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3050;
@@ -26,6 +28,12 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Servir archivos estáticos del frontend
 app.use(express.static(path.join(__dirname, '../frontend')));
+
+// Middleware de logging para debug
+app.use((req, res, next) => {
+  console.log(`📥 ${req.method} ${req.path}`);
+  next();
+});
 
 // Configurar timeouts
 app.use((req, res, next) => {
@@ -697,12 +705,18 @@ En MODO ESPECIAL (solo_hs=true): Devuelve únicamente { "hs": "XXXX.XX.XX.XX" } 
     try {
       const resultado = JSON.parse(respuesta);
       console.log('✅ Clasificación con Vision completada exitosamente');
-      return resultado;
+      return {
+        data: resultado,
+        usage: completion.usage || { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0 }
+      };
     } catch (parseError) {
       console.log('❌ Error al parsear JSON:', parseError.message);
       const jsonMatch = respuesta.match(/\{.*\}/s);
       if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
+        return {
+          data: JSON.parse(jsonMatch[0]),
+          usage: completion.usage || { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0 }
+        };
       }
       throw new Error('Respuesta no es JSON válido');
     }
@@ -803,12 +817,18 @@ async function clasificarTextoConResponsesAPI(textoProducto, soloHS = false, ope
     try {
       const resultado = JSON.parse(outputText);
       console.log('✅ JSON parseado correctamente');
-      return resultado;
+      return {
+        data: resultado,
+        usage: response.usage || { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0 }
+      };
     } catch (parseError) {
       console.log('❌ Error al parsear JSON:', parseError.message);
       const jsonMatch = outputText.match(/\{.*\}/s);
       if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
+        return {
+          data: JSON.parse(jsonMatch[0]),
+          usage: response.usage || { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0 }
+        };
       }
       throw new Error('Respuesta no es JSON válido');
     }
@@ -820,7 +840,7 @@ async function clasificarTextoConResponsesAPI(textoProducto, soloHS = false, ope
 }
 
 // Clasificar por texto
-app.post('/clasificar', async (req, res) => {
+app.post('/clasificar', verificarAuthOpcional, async (req, res) => {
   try {
     const { producto, solo_hs = false, operationType = 'import' } = req.body;
     
@@ -830,12 +850,68 @@ app.post('/clasificar', async (req, res) => {
       });
     }
     
+    console.log('🔍 Verificando autenticación en /clasificar:', {
+      tieneAuth: !!req.auth,
+      empresa_id: req.auth?.empresa_id,
+      usuario_id: req.auth?.usuario_id
+    });
+    
+    // Verificar tokens disponibles ANTES de clasificar
+    if (req.auth?.empresa_id) {
+      const db = require('./config/database').getDB();
+      const empresa = await db.collection('empresas').findOne({ empresa_id: req.auth.empresa_id });
+      
+      if (empresa) {
+        const tokensRestantes = empresa.tokens_limite_mensual - empresa.tokens_consumidos;
+        if (tokensRestantes <= 0) {
+          return res.status(403).json({
+            error: 'no_tokens_available',
+            mensaje: 'Has agotado tus tokens mensuales. Por favor, actualiza tu plan o espera el siguiente ciclo.',
+            limites: {
+              tokens_consumidos: empresa.tokens_consumidos,
+              tokens_limite: empresa.tokens_limite_mensual,
+              tokens_restantes: tokensRestantes
+            }
+          });
+        }
+      }
+    }
+    
     // Usar Responses API con tu prompt guardado
-    const resultado = await clasificarTextoConResponsesAPI(producto, solo_hs, operationType);
+    const respuesta = await clasificarTextoConResponsesAPI(producto, solo_hs, operationType);
+    const resultado = respuesta.data;
+    const usage = respuesta.usage;
+    
+    // Actualizar tokens consumidos y guardar en historial si hay autenticación
+    if (req.auth?.empresa_id && req.auth?.usuario_id) {
+      const HistorialService = require('./services/historialService');
+      console.log('✅ Usuario autenticado en /clasificar, guardando en historial...');
+      
+      // Actualizar tokens consumidos en la empresa
+      const db = require('./config/database').getDB();
+      await db.collection('empresas').updateOne(
+        { empresa_id: req.auth.empresa_id },
+        { $inc: { tokens_consumidos: usage.total_tokens } }
+      );
+      console.log(`📊 Tokens actualizados: +${usage.total_tokens}`);
+      
+      const historialResult = await HistorialService.guardarClasificacion(
+        req.auth.empresa_id,
+        req.auth.usuario_id,
+        operationType,
+        'Clasificación por texto',
+        resultado,
+        usage.total_tokens
+      );
+      console.log('📝 Resultado de guardar en historial:', historialResult);
+    } else {
+      console.log('⚠️ No hay autenticación en /clasificar, no se guardará en historial');
+    }
     
     res.json({
       success: true,
       data: resultado,
+      tokens_info: usage,
       operationType: operationType,
       timestamp: new Date().toISOString()
     });
@@ -941,12 +1017,18 @@ async function clasificarConResponsesAPIConArchivo(filePath, filename, mimeType,
     try {
       const resultado = JSON.parse(outputText);
       console.log('✅ JSON parseado correctamente');
-      return resultado;
+      return {
+        data: resultado,
+        usage: response.usage || { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0 }
+      };
     } catch (parseError) {
       console.log('❌ Error al parsear JSON:', parseError.message);
       const jsonMatch = outputText.match(/\{.*\}/s);
       if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
+        return {
+          data: JSON.parse(jsonMatch[0]),
+          usage: response.usage || { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0 }
+        };
       }
       throw new Error('Respuesta no es JSON válido');
     }
@@ -958,10 +1040,36 @@ async function clasificarConResponsesAPIConArchivo(filePath, filename, mimeType,
 }
 
 // Clasificar desde archivo
-app.post('/clasificar-archivo', upload.single('archivo'), async (req, res) => {
+app.post('/clasificar-archivo', verificarAuthOpcional, upload.single('archivo'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No se ha enviado ningún archivo' });
+    }
+    
+    // Verificar tokens disponibles ANTES de clasificar
+    if (req.auth?.empresa_id) {
+      const db = require('./config/database').getDB();
+      const empresa = await db.collection('empresas').findOne({ empresa_id: req.auth.empresa_id });
+      
+      if (empresa) {
+        const tokensRestantes = empresa.tokens_limite_mensual - empresa.tokens_consumidos;
+        if (tokensRestantes <= 0) {
+          // Eliminar el archivo subido antes de retornar error
+          if (fs.existsSync(req.file.path)) {
+            fs.unlinkSync(req.file.path);
+          }
+          
+          return res.status(403).json({
+            error: 'no_tokens_available',
+            mensaje: 'Has agotado tus tokens mensuales. Por favor, actualiza tu plan o espera el siguiente ciclo.',
+            limites: {
+              tokens_consumidos: empresa.tokens_consumidos,
+              tokens_limite: empresa.tokens_limite_mensual,
+              tokens_restantes: tokensRestantes
+            }
+          });
+        }
+      }
     }
     
     // Convertir solo_hs a booleano (viene como string desde FormData)
@@ -969,38 +1077,84 @@ app.post('/clasificar-archivo', upload.single('archivo'), async (req, res) => {
     const operationType = req.body.operationType || 'import';
     console.log('🔍 Modo solo_hs:', solo_hs, '(tipo:', typeof solo_hs, ')');
     console.log('📦 Tipo de operación:', operationType);
-    let resultado;
+    let respuesta;
     
     // Procesar según el tipo de archivo - USAR RESPONSES API
     if (req.file.mimetype === 'application/pdf') {
       // PDFs: enviar directamente a Responses API
       console.log('📄 PDF detectado, enviando directamente a Responses API...');
-      resultado = await clasificarConResponsesAPIConArchivo(req.file.path, req.file.originalname, req.file.mimetype, solo_hs, operationType);
+      respuesta = await clasificarConResponsesAPIConArchivo(req.file.path, req.file.originalname, req.file.mimetype, solo_hs, operationType);
       
     } else if (req.file.mimetype.includes('image')) {
       // Imágenes: usar Vision API (no soportado por Responses API aún)
       console.log('🖼️ Imagen detectada, usando Vision API...');
       const fileBuffer = fs.readFileSync(req.file.path);
       const base64Data = fileBuffer.toString('base64');
-      resultado = await clasificarConVision(base64Data, req.file.mimetype, solo_hs, operationType);
+      respuesta = await clasificarConVision(base64Data, req.file.mimetype, solo_hs, operationType);
       
     } else if (req.file.mimetype.includes('text')) {
       // Archivos de texto: usar Responses API
       console.log('📝 Texto detectado, usando Responses API...');
       const contenido = fs.readFileSync(req.file.path, 'utf8');
-      resultado = await clasificarTextoConResponsesAPI(contenido, solo_hs, operationType);
+      respuesta = await clasificarTextoConResponsesAPI(contenido, solo_hs, operationType);
       
     } else {
       throw new Error(`Tipo de archivo no soportado: ${req.file.mimetype}`);
     }
     
+    let resultado = respuesta.data;
+    const usage = respuesta.usage;
+    
     // Limpiar archivo temporal
     fs.unlinkSync(req.file.path);
+    
+    // Aplicar defaults y guardar en historial (si hay autenticación)
+    console.log('🔍 Verificando autenticación para historial:', {
+      tieneAuth: !!req.auth,
+      empresa_id: req.auth?.empresa_id,
+      usuario_id: req.auth?.usuario_id
+    });
+    
+    if (req.auth?.empresa_id && req.auth?.usuario_id) {
+      const ConfigService = require('./services/configService');
+      const HistorialService = require('./services/historialService');
+      
+      console.log('✅ Usuario autenticado, guardando en historial...');
+      
+      // Actualizar tokens consumidos en la empresa
+      const db = require('./config/database').getDB();
+      await db.collection('empresas').updateOne(
+        { empresa_id: req.auth.empresa_id },
+        { $inc: { tokens_consumidos: usage.total_tokens } }
+      );
+      console.log(`📊 Tokens actualizados: +${usage.total_tokens}`);
+      
+      // Obtener y aplicar defaults
+      const defaultsInfo = await ConfigService.obtenerDefaults(req.auth.empresa_id);
+      if (defaultsInfo.success && Object.keys(defaultsInfo.defaults).length > 0) {
+        resultado = ConfigService.aplicarDefaults(resultado, defaultsInfo.defaults);
+        console.log('✅ Defaults aplicados a la clasificación');
+      }
+      
+      // Guardar en historial
+      const historialResult = await HistorialService.guardarClasificacion(
+        req.auth.empresa_id,
+        req.auth.usuario_id,
+        operationType,
+        req.file.originalname,
+        resultado,
+        usage.total_tokens
+      );
+      console.log('📝 Resultado de guardar en historial:', historialResult);
+    } else {
+      console.log('⚠️ No hay autenticación, clasificación no se guardará en historial');
+    }
     
     res.json({
       success: true,
       archivo: req.file.originalname,
       data: resultado,
+      tokens_info: usage,
       operationType: operationType,
       timestamp: new Date().toISOString()
     });
@@ -1123,6 +1277,15 @@ app.post('/generar-xml', async (req, res) => {
     const xml = generarXmlImportDUA(jsonData);
     
     console.log('✅ XML generado exitosamente');
+    
+    // Marcar como exportado en historial (si hay autenticación y clasificacion_id)
+    if (req.auth?.empresa_id && req.body.clasificacion_id) {
+      const HistorialService = require('./services/historialService');
+      await HistorialService.marcarComoExportado(
+        req.body.clasificacion_id,
+        req.auth.empresa_id
+      );
+    }
     
     res.set('Content-Type', 'application/xml');
     res.send(xml);
@@ -1257,11 +1420,42 @@ app.get('/api/get-classification/:sessionId', (req, res) => {
   }
 });
 
-// Iniciar servidor
-app.listen(PORT, '127.0.0.1', () => {
-  console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
-  console.log(`📡 API disponible en http://localhost:${PORT}`);
-  console.log(`🏥 Health check: http://localhost:${PORT}/health`);
-});
+// Rutas de autenticación y gestión (si están implementadas)
+const authRoutes = require('./routes/auth');
+const historialRoutes = require('./routes/historial');
+const alertasRoutes = require('./routes/alertas');
+const configRoutes = require('./routes/config');
+const securityRoutes = require('./routes/security');
+const adminRoutes = require('./routes/admin');
+const planesRoutes = require('./routes/planes');
+
+app.use('/api/auth', authRoutes);
+app.use('/api/historial', historialRoutes);
+app.use('/api/alertas', alertasRoutes);
+app.use('/api/config', configRoutes);
+app.use('/api/security', securityRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/planes', planesRoutes);
+
+// Iniciar servidor con MongoDB
+async function startServer() {
+  try {
+    // Conectar a MongoDB
+    await connectDB();
+    
+    // Iniciar servidor HTTP
+    app.listen(PORT, '127.0.0.1', () => {
+      console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
+      console.log(`📡 API disponible en http://localhost:${PORT}`);
+      console.log(`🏥 Health check: http://localhost:${PORT}/health`);
+    });
+  } catch (error) {
+    console.error('❌ Error iniciando servidor:', error);
+    process.exit(1);
+  }
+}
+
+// Iniciar
+startServer();
 
 module.exports = app;

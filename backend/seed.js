@@ -42,7 +42,14 @@ const seedData = {
         periodo_inicio: "2025-10-01",
         periodo_fin: "2025-10-31",
         activa: true,
-        fecha_creacion: new Date().toISOString()
+        fecha_creacion: new Date().toISOString(),
+        // Configuración opcional de SMTP por empresa (si no se especifica, usa el servicio centralizado)
+        // smtp_host: "smtp.empresa.com",
+        // smtp_port: 587,
+        // smtp_user: "noreply@empresa.com",
+        // smtp_password: "password_empresa",
+        // smtp_secure: false,
+        // email_from: "noreply@importadorademo.com"
     },
     
     // Usuario de prueba (contraseña: demo123)
@@ -52,6 +59,19 @@ const seedData = {
         nombre: "Usuario Demo",
         correo: "demo@importadora.com",
         contrasena_hash: "", // Se generará en runtime
+        rol: "user",
+        activo: true,
+        fecha_creacion: new Date().toISOString()
+    },
+    
+    // Usuario administrador (contraseña: admin123)
+    usuarioAdmin: {
+        usuario_id: "admin-user-001",
+        empresa_id: "demo-empresa-001",
+        nombre: "Administrador",
+        correo: "admin@clasificador.com",
+        contrasena_hash: "", // Se generará en runtime
+        rol: "admin",
         activo: true,
         fecha_creacion: new Date().toISOString()
     }
@@ -74,10 +94,11 @@ async function insertarSeedData() {
         const resultPlanes = await planesCollection.insertMany(seedData.planes);
         console.log(`✅ ${resultPlanes.insertedCount} planes insertados`);
         
-        // 2. Generar hash de contraseña para usuario demo
-        console.log('🔐 Generando hash de contraseña...');
+        // 2. Generar hash de contraseñas
+        console.log('🔐 Generando hash de contraseñas...');
         const saltRounds = 12;
         seedData.usuarioPrueba.contrasena_hash = await bcrypt.hash('demo123', saltRounds);
+        seedData.usuarioAdmin.contrasena_hash = await bcrypt.hash('admin123', saltRounds);
         
         // 3. Insertar empresa de prueba
         console.log('🏢 Insertando empresa de prueba...');
@@ -94,12 +115,11 @@ async function insertarSeedData() {
         } else {
             console.log('⚠️ Empresa de prueba ya existe');
         }
-        
-        // 4. Insertar usuario de prueba
-        console.log('👤 Insertando usuario de prueba...');
+        // 4. Insertar usuarios de prueba
+        console.log('👤 Insertando usuarios de prueba...');
         const usuariosCollection = db.collection('usuarios');
         
-        // Verificar si ya existe
+        // Usuario regular
         const usuarioExistente = await usuariosCollection.findOne({ 
             correo: seedData.usuarioPrueba.correo 
         });
@@ -109,6 +129,18 @@ async function insertarSeedData() {
             console.log('✅ Usuario de prueba insertado');
         } else {
             console.log('⚠️ Usuario de prueba ya existe');
+        }
+        
+        // Usuario administrador
+        const adminExistente = await usuariosCollection.findOne({ 
+            correo: seedData.usuarioAdmin.correo 
+        });
+        
+        if (!adminExistente) {
+            await usuariosCollection.insertOne(seedData.usuarioAdmin);
+            console.log('✅ Usuario administrador insertado');
+        } else {
+            console.log('⚠️ Usuario administrador ya existe');
         }
         
         // 5. Mostrar resumen
@@ -127,7 +159,12 @@ async function insertarSeedData() {
         console.log(`\n👤 Usuario demo: ${seedData.usuarioPrueba.nombre}`);
         console.log(`   • Email: ${seedData.usuarioPrueba.correo}`);
         console.log(`   • Contraseña: demo123`);
-        console.log(`   • ID: ${seedData.usuarioPrueba.usuario_id}`);
+        console.log(`   • Rol: user`);
+        
+        console.log(`\n👑 Usuario administrador: ${seedData.usuarioAdmin.nombre}`);
+        console.log(`   • Email: ${seedData.usuarioAdmin.correo}`);
+        console.log(`   • Contraseña: admin123`);
+        console.log(`   • Rol: admin`);
         
         console.log('\n🎉 Datos semilla insertados correctamente!');
         

@@ -71,8 +71,46 @@ function extraerIP(req, res, next) {
     next();
 }
 
+// Middleware opcional para verificar autenticación (no falla si no hay token)
+async function verificarAuthOpcional(req, res, next) {
+    try {
+        const authHeader = req.headers.authorization;
+        
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            // No hay token, pero continuar sin autenticación
+            req.auth = null;
+            return next();
+        }
+        
+        const token = authHeader.substring(7); // Remover 'Bearer '
+        
+        const verificacion = await AuthService.verificarToken(token);
+        
+        if (verificacion.valid) {
+            // Token válido, agregar información del usuario
+            req.auth = {
+                usuario_id: verificacion.usuario_id,
+                empresa_id: verificacion.empresa_id,
+                sesion_id: verificacion.sesion_id,
+                device_fingerprint: verificacion.device_fingerprint
+            };
+        } else {
+            // Token inválido, pero continuar sin autenticación
+            req.auth = null;
+        }
+        
+        next();
+        
+    } catch (error) {
+        console.error('Error en middleware de autenticación opcional:', error);
+        req.auth = null;
+        next();
+    }
+}
+
 module.exports = {
     verificarAuth,
+    verificarAuthOpcional,
     extraerDeviceFingerprint,
     extraerIP
 };

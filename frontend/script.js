@@ -1,14 +1,81 @@
 // Configuración de la API
-const API_BASE_URL = 'http://localhost:3050';
+const API_BASE_URL = 'http://127.0.0.1:3050';
 
 // Estado global
 let resultadoActual = null;
 let archivoSeleccionado = null;
-let authToken = null;
-let userInfo = null;
 let editedClassification = null; // Para almacenar la clasificación editada
 let currentEditingIndex = null; // Índice del producto que se está editando
-let currentSessionId = null; // ID de sesión para el backend
+let authToken = localStorage.getItem('authToken'); // Token de autenticación
+let userInfo = null; // Información del usuario logueado
+
+// Función auxiliar para mostrar notificaciones
+function showNotification(message, type = 'info') {
+    // Buscar contenedor existente o crear uno nuevo
+    let container = document.getElementById('notification-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'notification-container';
+        container.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10001;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        `;
+        document.body.appendChild(container);
+    }
+    
+    const notification = document.createElement('div');
+    const colors = {
+        success: '#10b981',
+        error: '#dc2626',
+        warning: '#f59e0b',
+        info: '#3b82f6'
+    };
+    
+    notification.style.cssText = `
+        background: ${colors[type] || colors.info};
+        color: white;
+        padding: 1rem 1.5rem;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        min-width: 300px;
+        animation: slideInRight 0.3s ease-out;
+        font-size: 14px;
+    `;
+    
+    notification.textContent = message;
+    container.appendChild(notification);
+    
+    // Auto-remover después de 5 segundos
+    setTimeout(() => {
+        notification.style.animation = 'slideOutRight 0.3s ease-out';
+        setTimeout(() => notification.remove(), 300);
+    }, 5000);
+}
+
+// Agregar estilos de animación
+(function() {
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes slideInRight {
+            from { transform: translateX(400px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes slideOutRight {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(400px); opacity: 0; }
+        }
+        @keyframes slideDown {
+            from { transform: translateY(-100%); }
+            to { transform: translateY(0); }
+        }
+    `;
+    document.head.appendChild(style);
+})();
 
 // Funciones globales para onclick
 window.abrirFormularioEdicion = function() {
@@ -47,6 +114,11 @@ window.guardarJSON = function() {
         
         showNotification('✅ JSON guardado correctamente. Ahora puedes descargar el XML con estos datos.', 'success');
         
+        // Revalidar campos obligatorios después de guardar
+        setTimeout(() => {
+            validarYMostrarPanel();
+        }, 500);
+        
         // Opcional: actualizar la visualización de la tarjeta
         // displayResults(resultadoActual);
         
@@ -80,9 +152,14 @@ window.editarCampoDirecto = function(fieldKey, fieldLabel, element) {
     
     console.log('Valor actual:', currentValue);
     
-    // Determinar el tipo de input
+    // Determinar el tipo de campo
     const isNumeric = fieldKey.includes('dai') || fieldKey.includes('itbis') || fieldKey.includes('valor') || fieldKey.includes('peso') || fieldKey.includes('cantidad');
-    const inputType = isNumeric ? 'number' : 'text';
+    const isBoolean = fieldKey.toLowerCase().includes('yn') || 
+                      fieldKey.toLowerCase().includes('tempproduct') || 
+                      fieldKey.toLowerCase().includes('organic') || 
+                      fieldKey.toLowerCase().includes('certificate') ||
+                      currentValue === 'true' || currentValue === 'false' ||
+                      currentValue === true || currentValue === false;
     
     // Guardar el valor original en el dataset
     valueElement.dataset.originalValue = currentValue;
@@ -92,21 +169,51 @@ window.editarCampoDirecto = function(fieldKey, fieldLabel, element) {
     editControls.className = 'edit-controls';
     editControls.style.cssText = 'display: flex; gap: 5px; align-items: center; width: 100%;';
     
-    // Crear input
-    const input = document.createElement(isNumeric ? 'input' : 'textarea');
-    input.type = inputType;
-    input.id = `edit-input-${fieldKey}`;
-    input.value = currentValue;
-    input.style.cssText = 'flex: 1; padding: 8px; border: 2px solid #667eea; border-radius: 4px; font-size: 14px; min-height: 40px; resize: vertical;';
+    // Crear input apropiado según el tipo
+    let input;
+    if (isBoolean) {
+        // Crear select para campos booleanos
+        input = document.createElement('select');
+        input.id = `edit-input-${fieldKey}`;
+        input.style.cssText = 'flex: 1; padding: 8px; border: 2px solid #667eea; border-radius: 4px; font-size: 14px; min-height: 40px; cursor: pointer; background: white;';
+        
+        // Agregar opciones
+        const optionTrue = document.createElement('option');
+        optionTrue.value = 'true';
+        optionTrue.textContent = 'true';
+        
+        const optionFalse = document.createElement('option');
+        optionFalse.value = 'false';
+        optionFalse.textContent = 'false';
+        
+        input.appendChild(optionTrue);
+        input.appendChild(optionFalse);
+        
+        // Seleccionar el valor actual
+        const normalizedValue = String(currentValue).toLowerCase();
+        input.value = normalizedValue === 'true' ? 'true' : 'false';
+    } else {
+        // Crear input/textarea para otros campos
+        const inputType = isNumeric ? 'number' : 'text';
+        input = document.createElement(isNumeric ? 'input' : 'textarea');
+        input.type = inputType;
+        input.id = `edit-input-${fieldKey}`;
+        input.value = currentValue;
+        input.style.cssText = 'flex: 1; padding: 8px; border: 2px solid #667eea; border-radius: 4px; font-size: 14px; min-height: 40px; resize: vertical;';
+    }
+    
     input.dataset.fieldKey = fieldKey;
     input.dataset.fieldLabel = fieldLabel;
     
-    input.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            guardarCampoDirecto(fieldKey, fieldLabel, this);
-        }
-    });
+    // Solo agregar keypress para inputs/textarea, no para select
+    if (!isBoolean) {
+        input.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                guardarCampoDirecto(fieldKey, fieldLabel, this);
+            }
+        });
+    }
     
     // Botón guardar
     const saveBtn = document.createElement('button');
@@ -266,6 +373,21 @@ window.guardarCampoDirecto = function(fieldKey, fieldLabel, parentElement) {
     
     showNotification(`✅ ${fieldLabel} actualizado`, 'success');
     console.log('===========================================');
+    
+    // Limpiar alerta inline del campo editado si existe
+    const fieldElement = parentElement.closest('.detail-item');
+    if (fieldElement) {
+        const inlineAlert = fieldElement.querySelector('.field-inline-alert');
+        if (inlineAlert) {
+            inlineAlert.remove();
+        }
+        fieldElement.classList.remove('has-error');
+    }
+    
+    // Revalidar campos obligatorios después de editar
+    setTimeout(() => {
+        validarYMostrarPanel();
+    }, 500);
 };
 
 // Cancelar edición directa
@@ -377,7 +499,8 @@ async function logout() {
             await fetch(`${API_BASE_URL}/api/auth/logout`, {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${authToken}`
+                    'Authorization': `Bearer ${authToken}`,
+                    'Content-Type': 'application/json'
                 }
             });
         } catch (error) {
@@ -385,11 +508,16 @@ async function logout() {
         }
     }
     
-    authToken = null;
-    userInfo = null;
-    localStorage.removeItem('authToken');
-    document.getElementById('auth-info').style.display = 'none';
-    showLoginModal();
+    // Limpiar sesión
+    limpiarSesion();
+    
+    // Mostrar modal de login
+    const loginModal = document.getElementById('login-modal');
+    if (loginModal) {
+        loginModal.style.display = 'flex';
+    }
+    
+    mostrarNotificacion('Sesión cerrada correctamente', 'success');
 }
 
 // Event listeners para el login
@@ -444,6 +572,342 @@ async function verificarConexion() {
 }
 
 // Funciones de utilidad
+// Cargar historial de clasificaciones
+async function cargarHistorial() {
+    if (!authToken) {
+        console.log('⚠️ No hay token, no se puede cargar historial');
+        const historialLista = document.getElementById('historial-lista');
+        if (historialLista) {
+            historialLista.innerHTML = '<p style="text-align: center; padding: 40px;">Inicia sesión para ver tu historial de clasificaciones</p>';
+        }
+        return;
+    }
+    
+    try {
+        console.log('📡 Cargando historial...');
+        
+        const response = await fetch(`${API_BASE_URL}/api/historial?limite=50`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            if (response.status === 401) {
+                // Token inválido, pedir re-login
+                historialLista.innerHTML = '<div style="text-align: center; padding: 40px;"><p style="color: #dc2626;">Tu sesión ha expirado.</p><button onclick="location.reload()" class="btn-primary">Iniciar sesión nuevamente</button></div>';
+                limpiarSesion();
+                return;
+            }
+            throw new Error('Error al cargar historial');
+        }
+        
+        const data = await response.json();
+        console.log('✅ Historial cargado:', data);
+        console.log('📊 Total de clasificaciones recibidas:', data.clasificaciones?.length || 0);
+        console.log('📋 Paginación:', data.paginacion);
+        
+        const historialLista = document.getElementById('historial-lista');
+        if (!historialLista) {
+            console.warn('⚠️ No se encontró el contenedor de historial');
+            return;
+        }
+        
+        if (!data.success || !data.clasificaciones || data.clasificaciones.length === 0) {
+            historialLista.innerHTML = '<p style="text-align: center; padding: 40px;">No hay clasificaciones en tu historial aún. ¡Realiza tu primera clasificación!</p>';
+            return;
+        }
+        
+        // Generar HTML para cada clasificación
+        const historialHTML = data.clasificaciones.map(clf => {
+            const fecha = new Date(clf.fecha_creacion).toLocaleString('es-ES');
+            const tipo = clf.tipo_operacion === 'import' ? 'Importación' : 'Exportación';
+            const productos = clf.productos && clf.productos.length > 0 ? clf.productos.length : 0;
+            const tokens = clf.tokens_consumidos ? clf.tokens_consumidos.toLocaleString() : 'N/A';
+            
+            return `
+                <div class="historial-item" style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; margin-bottom: 15px; background: white; transition: box-shadow 0.2s;">
+                    <div style="display: flex; justify-content: space-between; align-items: start;">
+                        <div style="flex: 1;">
+                            <h4 style="margin: 0 0 8px 0; color: #2563eb;">
+                                <i class="fas fa-file-alt"></i> ${clf.nombre_archivo || 'Clasificación por texto'}
+                            </h4>
+                            <p style="margin: 4px 0; color: #666; font-size: 0.9rem;">
+                                <i class="fas fa-calendar"></i> ${fecha}
+                                <span style="margin-left: 15px;"><i class="fas fa-tag"></i> ${tipo}</span>
+                            </p>
+                            <p style="margin: 8px 0 0 0; color: #888; font-size: 0.85rem;">
+                                <i class="fas fa-box"></i> ${productos} producto${productos !== 1 ? 's' : ''}
+                                <span style="margin-left: 15px;"><i class="fas fa-coins"></i> ${tokens} tokens</span>
+                            </p>
+                        </div>
+                        <div style="text-align: right;">
+                            <button onclick="verDetalleClasificacion('${clf.clasificacion_id}')" class="btn-secondary" style="font-size: 0.85rem; padding: 6px 12px;">
+                                <i class="fas fa-eye"></i> Ver detalles
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        historialLista.innerHTML = `
+            <div style="margin-bottom: 20px;">
+                <p style="color: #666;">Total de clasificaciones: <strong>${data.paginacion.total}</strong></p>
+            </div>
+            ${historialHTML}
+        `;
+        
+    } catch (error) {
+        console.error('❌ Error al cargar historial:', error);
+        const historialLista = document.getElementById('historial-lista');
+        if (historialLista) {
+            historialLista.innerHTML = '<p style="text-align: center; padding: 40px; color: #dc2626;">Error al cargar el historial. Por favor, intenta nuevamente.</p>';
+        }
+    }
+}
+
+// Función para ver detalle de una clasificación
+async function verDetalleClasificacion(clasificacionId) {
+    console.log('📖 Cargando detalle de clasificación:', clasificacionId);
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/historial/${clasificacionId}`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error('Error al cargar detalle');
+        }
+        
+        const data = await response.json();
+        console.log('✅ Detalle cargado:', data);
+        
+        if (!data.success || !data.clasificacion) {
+            throw new Error('Clasificación no encontrada');
+        }
+        
+        const clf = data.clasificacion;
+        
+        // Guardar resultado en variable global para edición y exportación
+        resultadoActual = clf.resultado;
+        clasificacionIdActual = clasificacionId;
+        
+        // Crear modal para mostrar detalles
+        const fecha = new Date(clf.fecha_creacion).toLocaleString('es-ES');
+        const tipo = clf.tipo_operacion === 'import' ? 'Importación' : 'Exportación';
+        const tokens = clf.tokens_consumidos ? clf.tokens_consumidos.toLocaleString() : 'N/A';
+        
+        // Generar HTML para productos con más detalles
+        let productosHTML = '';
+        if (clf.productos && clf.productos.length > 0) {
+            productosHTML = clf.productos.map((prod, idx) => `
+                <div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; margin-bottom: 12px; background: #f9fafb;">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                        <h4 style="margin: 0; color: #1f2937; font-size: 16px;">Producto ${idx + 1}</h4>
+                        <span style="background: #3b82f6; color: white; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">
+                            ${prod.HSCode || 'N/A'}
+                        </span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 14px;">
+                        <p style="margin: 4px 0;"><strong>Nombre:</strong> ${prod.ProductName || 'N/A'}</p>
+                        <p style="margin: 4px 0;"><strong>Código:</strong> ${prod.ProductCode || 'N/A'}</p>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            productosHTML = '<p style="color: #666; text-align: center; padding: 20px;">No hay productos clasificados</p>';
+        }
+        
+        // Crear y mostrar modal mejorado
+        const modal = document.createElement('div');
+        modal.id = 'modal-detalle-historial';
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 10000; padding: 20px;';
+        
+        modal.innerHTML = `
+            <div style="background: white; border-radius: 16px; max-width: 900px; width: 100%; max-height: 90vh; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+                <div style="padding: 24px; border-bottom: 2px solid #e5e7eb; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; color: white; font-size: 22px; font-weight: 600;">
+                            <i class="fas fa-file-invoice"></i> Detalle de Clasificación
+                        </h3>
+                        <button onclick="cerrarModalDetalle()" style="background: rgba(255,255,255,0.2); border: none; width: 36px; height: 36px; border-radius: 50%; font-size: 24px; cursor: pointer; color: white; display: flex; align-items: center; justify-content: center; transition: all 0.3s;">×</button>
+                    </div>
+                </div>
+                
+                <div style="flex: 1; overflow-y: auto; padding: 24px;">
+                    <div style="background: #f8fafc; border-radius: 12px; padding: 20px; margin-bottom: 20px; border-left: 4px solid #3b82f6;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
+                            <div>
+                                <p style="margin: 0 0 4px 0; font-size: 12px; color: #6b7280; text-transform: uppercase; font-weight: 600;">Archivo</p>
+                                <p style="margin: 0; font-size: 15px; color: #1f2937; font-weight: 500;">${clf.nombre_archivo}</p>
+                            </div>
+                            <div>
+                                <p style="margin: 0 0 4px 0; font-size: 12px; color: #6b7280; text-transform: uppercase; font-weight: 600;">Fecha</p>
+                                <p style="margin: 0; font-size: 15px; color: #1f2937; font-weight: 500;">${fecha}</p>
+                            </div>
+                            <div>
+                                <p style="margin: 0 0 4px 0; font-size: 12px; color: #6b7280; text-transform: uppercase; font-weight: 600;">Tipo</p>
+                                <p style="margin: 0; font-size: 15px; color: #1f2937; font-weight: 500;">
+                                    ${tipo === 'Importación' ? '📥' : '📤'} ${tipo}
+                                </p>
+                            </div>
+                            <div>
+                                <p style="margin: 0 0 4px 0; font-size: 12px; color: #6b7280; text-transform: uppercase; font-weight: 600;">Tokens</p>
+                                <p style="margin: 0; font-size: 15px; color: #1f2937; font-weight: 500;">⚡ ${tokens}</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <h4 style="margin: 0; color: #1f2937; font-size: 18px; font-weight: 600;">
+                                Productos Clasificados (${clf.productos?.length || 0})
+                            </h4>
+                            <div style="display: flex; gap: 8px;">
+                                ${clf.editado ? '<span style="background: #fef3c7; color: #92400e; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">✏️ Editado</span>' : ''}
+                                ${clf.exportado ? '<span style="background: #d1fae5; color: #065f46; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">📤 Exportado</span>' : ''}
+                            </div>
+                        </div>
+                        ${productosHTML}
+                    </div>
+                </div>
+                
+                <div style="padding: 20px; border-top: 2px solid #e5e7eb; background: #f9fafb; display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;">
+                    <button onclick="editarResultadoHistorial('${clasificacionId}')" style="background: #f59e0b; color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px; transition: all 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                        <i class="fas fa-edit"></i> Editar
+                    </button>
+                    <button onclick="descargarXMLHistorial('${clasificacionId}')" style="background: #10b981; color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px; transition: all 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                        <i class="fas fa-file-code"></i> Descargar XML
+                    </button>
+                    <button onclick="cerrarModalDetalle()" style="background: #6b7280; color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px; transition: all 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                        <i class="fas fa-times"></i> Cerrar
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Cerrar al hacer clic fuera del modal
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                cerrarModalDetalle();
+            }
+        });
+        
+        // Añadir estilos hover para los botones
+        const buttons = modal.querySelectorAll('button[style*="transition"]');
+        buttons.forEach(btn => {
+            btn.addEventListener('mouseenter', () => {
+                btn.style.transform = 'translateY(-2px)';
+                btn.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+            });
+            btn.addEventListener('mouseleave', () => {
+                btn.style.transform = 'translateY(0)';
+                btn.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+            });
+        });
+        
+    } catch (error) {
+        console.error('❌ Error al cargar detalle:', error);
+        showNotification('Error al cargar los detalles de la clasificación', 'error');
+    }
+}
+
+// Variables globales para edición desde historial
+let clasificacionIdActual = null;
+
+// Función para cerrar el modal de detalle
+function cerrarModalDetalle() {
+    const modal = document.getElementById('modal-detalle-historial');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+// Función para editar resultado desde historial
+function editarResultadoHistorial(clasificacionId) {
+    if (!resultadoActual) {
+        showNotification('No hay resultado para editar', 'error');
+        return;
+    }
+    
+    console.log('✏️ Editando resultado de clasificación:', clasificacionId);
+    
+    // Cerrar modal de detalle
+    cerrarModalDetalle();
+    
+    // Mostrar resultado en la interfaz principal
+    showResults(resultadoActual, null);
+    
+    // Scroll a resultados
+    document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    
+    showNotification('Resultado cargado para edición. Puedes modificar y exportar nuevamente.', 'success');
+}
+
+// Función para descargar XML desde historial
+function descargarXMLHistorial(clasificacionId) {
+    if (!resultadoActual) {
+        showNotification('No hay resultado para exportar', 'error');
+        return;
+    }
+    
+    console.log('📥 Descargando XML de clasificación:', clasificacionId);
+    
+    try {
+        const xml = convertToXML(resultadoActual, 'ImportDUA');
+        const blob = new Blob([xml], { type: 'application/xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `clasificacion_${clasificacionId}_${Date.now()}.xml`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        showNotification('✅ XML descargado exitosamente', 'success');
+    } catch (error) {
+        console.error('Error descargando XML:', error);
+        showNotification('Error al generar XML', 'error');
+    }
+}
+
+// Función para descargar JSON desde historial
+function descargarJSONHistorial(clasificacionId) {
+    if (!resultadoActual) {
+        showNotification('No hay resultado para exportar', 'error');
+        return;
+    }
+    
+    console.log('📥 Descargando JSON de clasificación:', clasificacionId);
+    
+    try {
+        const json = JSON.stringify(resultadoActual, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `clasificacion_${clasificacionId}_${Date.now()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        showNotification('✅ JSON descargado exitosamente', 'success');
+    } catch (error) {
+        console.error('Error descargando JSON:', error);
+        showNotification('Error al generar JSON', 'error');
+    }
+}
+
 function showTab(tabName) {
     // Ocultar todos los tabs
     document.querySelectorAll('.tab-content').forEach(tab => {
@@ -474,6 +938,17 @@ function showTab(tabName) {
     if (tabName === 'planes') {
         loadPlanesData();
         updatePlanInfo();
+    } else if (tabName === 'historial') {
+        // Cargar historial si el usuario está autenticado
+        cargarHistorial();
+    } else if (tabName === 'configuracion') {
+        // Cargar configuración y top códigos HS
+        if (typeof cargarDefaults === 'function') {
+            cargarDefaults();
+        }
+        if (typeof cargarTopCodigosHS === 'function') {
+            cargarTopCodigosHS();
+        }
     }
     
     // Limpiar resultados y errores
@@ -482,13 +957,15 @@ function showTab(tabName) {
 }
 
 function showLoading() {
-    document.getElementById('loading').style.display = 'block';
+    const loadingDiv = document.getElementById('loading');
+    if (loadingDiv) loadingDiv.style.display = 'block';
     hideResults();
     hideError();
 }
 
 function hideLoading() {
-    document.getElementById('loading').style.display = 'none';
+    const loadingDiv = document.getElementById('loading');
+    if (loadingDiv) loadingDiv.style.display = 'none';
 }
 
 function showResults(data, tokensInfo = null) {
@@ -543,6 +1020,11 @@ function showResults(data, tokensInfo = null) {
     
     // Mostrar botones de acción después de mostrar los resultados
     showActionButtons();
+    
+    // Validar y mostrar panel de campos faltantes si es necesario
+    setTimeout(() => {
+        validarYMostrarPanel();
+    }, 500);
 }
 
 function showActionButtons() {
@@ -1014,18 +1496,24 @@ function createResultCard(data, index = null) {
 }
 
 function hideResults() {
-    document.getElementById('results').style.display = 'none';
+    const resultsDiv = document.getElementById('results');
+    if (resultsDiv) {
+        resultsDiv.style.display = 'none';
+    }
     resultadoActual = null;
 }
 
 function showError(message) {
     hideLoading();
-    document.getElementById('error-message').textContent = message;
-    document.getElementById('error').style.display = 'flex';
+    const errorMsg = document.getElementById('error-message');
+    const errorDiv = document.getElementById('error');
+    if (errorMsg) errorMsg.textContent = message;
+    if (errorDiv) errorDiv.style.display = 'flex';
 }
 
 function hideError() {
-    document.getElementById('error').style.display = 'none';
+    const errorDiv = document.getElementById('error');
+    if (errorDiv) errorDiv.style.display = 'none';
 }
 
 // Funciones de ayuda para el frontend
@@ -1097,13 +1585,23 @@ async function clasificarTexto() {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutos
         
+        // Preparar headers con autenticación si está disponible
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+        
+        if (authToken) {
+            headers['Authorization'] = `Bearer ${authToken}`;
+            console.log('🔑 Enviando clasificación con token de autenticación');
+        } else {
+            console.log('⚠️ Clasificando sin autenticación (no se guardará en historial)');
+        }
+        
         const response = await fetch(`${API_BASE_URL}/clasificar`, {
             method: 'POST',
             mode: 'cors',
             cache: 'no-cache',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: headers,
             body: JSON.stringify({
                 producto: producto,
                 solo_hs: soloHS
@@ -1128,7 +1626,20 @@ async function clasificarTexto() {
                 showLoginModal();
                 return;
             } else if (response.status === 403) {
-                showError(result.mensaje || 'No tienes suficientes tokens o has alcanzado el límite de dispositivos.');
+                // Verificar si es error de tokens agotados
+                if (result.error === 'no_tokens_available') {
+                    const mensaje = result.mensaje || 'Has agotado tus tokens mensuales.';
+                    showError(`${mensaje}\n\nPuedes actualizar tu plan desde la sección de perfil.`);
+                    
+                    // Si hay información de límites, actualizarla en la UI
+                    if (result.limites && userInfo && userInfo.limites) {
+                        userInfo.limites.tokens_consumidos = result.limites.tokens_consumidos;
+                        userInfo.limites.tokens_limite_mensual = result.limites.tokens_limite;
+                        updatePlanInfo();
+                    }
+                } else {
+                    showError(result.mensaje || 'No tienes suficientes tokens o has alcanzado el límite de dispositivos.');
+                }
                 return;
             }
             throw new Error(result.error || 'Error en la clasificación');
@@ -1142,6 +1653,10 @@ async function clasificarTexto() {
                     const tokensText = `${userInfo.limites.tokens_consumidos.toLocaleString()} / ${userInfo.limites.tokens_limite_mensual.toLocaleString()} tokens`;
                     const tokensElement = document.getElementById('tokens-info');
                     if (tokensElement) tokensElement.textContent = tokensText;
+                    
+                    // Guardar en localStorage para persistir los cambios
+                    localStorage.setItem('userInfo', JSON.stringify(userInfo));
+                    console.log('💾 Tokens actualizados en localStorage:', userInfo.limites.tokens_consumidos);
                 }
                 updatePlanInfo();
             }
@@ -1229,8 +1744,17 @@ async function clasificarArchivo() {
         formData.append('archivo', archivoSeleccionado);
         formData.append('solo_hs', soloHS);
         
+        const headers = {};
+        if (authToken) {
+            headers['Authorization'] = `Bearer ${authToken}`;
+            console.log('🔑 Enviando clasificación de archivo con token de autenticación');
+        } else {
+            console.log('⚠️ Clasificando archivo sin autenticación (no se guardará en historial)');
+        }
+        
         const response = await fetch(`${API_BASE_URL}/clasificar-archivo`, {
             method: 'POST',
+            headers: headers,
             body: formData
         });
         
@@ -1241,27 +1765,71 @@ async function clasificarArchivo() {
         console.log('Data:', JSON.stringify(result, null, 2));
         
         if (!response.ok) {
+            // Manejar errores de autenticación
+            if (response.status === 401) {
+                authToken = null;
+                localStorage.removeItem('authToken');
+                showError('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.');
+                showLoginModal();
+                return;
+            } else if (response.status === 403) {
+                // Verificar si es error de tokens agotados
+                if (result.error === 'no_tokens_available') {
+                    const mensaje = result.mensaje || 'Has agotado tus tokens mensuales.';
+                    showError(`${mensaje}\n\nPuedes actualizar tu plan desde la sección de perfil.`);
+                    
+                    // Si hay información de límites, actualizarla en la UI
+                    if (result.limites && userInfo && userInfo.limites) {
+                        userInfo.limites.tokens_consumidos = result.limites.tokens_consumidos;
+                        userInfo.limites.tokens_limite_mensual = result.limites.tokens_limite;
+                        updatePlanInfo();
+                    }
+                } else {
+                    showError(result.mensaje || 'No tienes suficientes tokens o has alcanzado el límite de dispositivos.');
+                }
+                return;
+            }
             throw new Error(result.error || 'Error en la clasificación');
         }
         
         if (result.success) {
             hideLoading();
             
+            // Actualizar información de consumo si está disponible
+            if (result.tokens_info && userInfo && userInfo.limites) {
+                userInfo.limites.tokens_consumidos += result.tokens_info.total_tokens;
+                const tokensText = `${userInfo.limites.tokens_consumidos.toLocaleString()} / ${userInfo.limites.tokens_limite_mensual.toLocaleString()} tokens`;
+                const tokensElement = document.getElementById('tokens-info');
+                if (tokensElement) tokensElement.textContent = tokensText;
+                
+                // Guardar en localStorage para persistir los cambios
+                localStorage.setItem('userInfo', JSON.stringify(userInfo));
+                console.log('💾 Tokens actualizados en localStorage:', userInfo.limites.tokens_consumidos);
+                
+                updatePlanInfo();
+            }
+            
             // Guardar el resultado en la variable global
             resultadoActual = result.data;
             
             // Si es modo solo_hs, mostrar solo el código
             if (soloHS && result.data.hs) {
-                showResults({ hs: result.data.hs }, null);
+                showResults({ hs: result.data.hs }, result.tokens_info);
             } else {
                 // Modo completo: mostrar estructura ImportDUA
-                showResults(result.data, null);
+                showResults(result.data, result.tokens_info);
             }
             
             // Scroll suave a los resultados
             document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
             
             showNotification('✅ Clasificación completada exitosamente', 'success');
+            
+            // Recargar historial si el usuario está autenticado
+            const token = localStorage.getItem('authToken');
+            if (token && typeof cargarHistorial === 'function') {
+                setTimeout(() => cargarHistorial(), 500);
+            }
         } else {
             throw new Error('No se pudo obtener la clasificación');
         }
@@ -2093,111 +2661,77 @@ function showNotification(message, type = 'info') {
 // Funciones para gestión de planes
 async function loadPlanesData() {
     try {
-        // Cargar planes demo sin autenticación - PLANES COMPLETOS ORIGINALES
-        const planesDemo = {
-            planes: [
-                {
-                    id: 'gratuito',
-                    nombre: 'Plan Gratuito',
-                    precio: 0,
-                    tokens_incluidos: 100,
-                    max_dispositivos: 1,
-                    descripcion: 'Para probar el sistema',
-                    caracteristicas: [
-                        '100 clasificaciones mensuales',
-                        '1 dispositivo',
-                        'Soporte por email',
-                        'Funciones básicas'
-                    ]
-                },
-                {
-                    id: 'basico',
-                    nombre: 'Plan Básico',
-                    precio: 29.99,
-                    tokens_incluidos: 1000,
-                    max_dispositivos: 3,
-                    descripcion: 'Perfecto para pequeñas empresas',
-                    caracteristicas: [
-                        '1,000 clasificaciones mensuales',
-                        'Máximo 3 dispositivos',
-                        'Soporte por email',
-                        'Exportación XML básica',
-                        'Historial de 3 meses'
-                    ]
-                },
-                {
-                    id: 'profesional',
-                    nombre: 'Plan Profesional',
-                    precio: 59.99,
-                    tokens_incluidos: 5000,
-                    max_dispositivos: 8,
-                    descripcion: 'Ideal para empresas medianas',
-                    caracteristicas: [
-                        '5,000 clasificaciones mensuales',
-                        'Máximo 8 dispositivos',
-                        'Soporte prioritario',
-                        'Exportación XML completa',
-                        'API de integración',
-                        'Reportes avanzados',
-                        'Historial de 12 meses'
-                    ]
-                },
-                {
-                    id: 'empresarial',
-                    nombre: 'Plan Empresarial',
-                    precio: 149.99,
-                    tokens_incluidos: 15000,
-                    max_dispositivos: 25,
-                    descripcion: 'Para grandes importadoras',
-                    caracteristicas: [
-                        '15,000 clasificaciones mensuales',
-                        'Máximo 25 dispositivos',
-                        'Soporte 24/7',
-                        'Exportación XML ilimitada',
-                        'API completa',
-                        'Dashboard ejecutivo',
-                        'Capacitación incluida',
-                        'Historial ilimitado'
-                    ]
-                },
-                {
-                    id: 'corporativo',
-                    nombre: 'Plan Corporativo',
-                    precio: 299.99,
-                    tokens_incluidos: 50000,
-                    max_dispositivos: 100,
-                    descripcion: 'Para corporaciones grandes',
-                    caracteristicas: [
-                        '50,000 clasificaciones mensuales',
-                        'Hasta 100 dispositivos',
-                        'Soporte dedicado',
-                        'Integración personalizada',
-                        'SLA garantizado',
-                        'Consultoría incluida',
-                        'Múltiples sucursales'
-                    ]
-                },
-                {
-                    id: 'ilimitado',
-                    nombre: 'Plan Ilimitado',
-                    precio: 599.99,
-                    tokens_incluidos: -1,
-                    max_dispositivos: -1,
-                    descripcion: 'Sin límites para grandes corporaciones',
-                    caracteristicas: [
-                        'Clasificaciones ilimitadas',
-                        'Dispositivos ilimitados',
-                        'Soporte dedicado 24/7',
-                        'Todas las funciones premium',
-                        'Integración personalizada',
-                        'Consultoría especializada',
-                        'Implementación on-premise disponible'
-                    ]
-                }
-            ]
-        };
+        // Cargar planes desde el backend
+        const response = await fetch(`${API_BASE_URL}/api/planes/listar`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
         
-        displayPlanes(planesDemo.planes);
+        let planesData;
+        
+        if (response.ok) {
+            planesData = await response.json();
+            console.log('✅ Planes cargados desde backend:', planesData);
+        } else {
+            // Fallback a planes demo si falla la carga
+            console.warn('⚠️ No se pudieron cargar planes desde backend, usando planes locales');
+            planesData = {
+                planes: [
+                    {
+                        id: 'plan-gratuito',
+                        nombre: 'Plan Gratuito',
+                        precio_mensual: 0,
+                        tokens_mes: 100,
+                        dispositivos_concurrentes: 1,
+                        descripcion: 'Para probar el sistema'
+                    },
+                    {
+                        id: 'plan-basico',
+                        nombre: 'Plan Básico',
+                        precio_mensual: 29.99,
+                        tokens_mes: 1000,
+                        dispositivos_concurrentes: 3,
+                        descripcion: 'Perfecto para pequeñas empresas'
+                    },
+                    {
+                        id: 'plan-profesional',
+                        nombre: 'Plan Profesional',
+                        precio_mensual: 59.99,
+                        tokens_mes: 5000,
+                        dispositivos_concurrentes: 8,
+                        descripcion: 'Ideal para empresas medianas'
+                    },
+                    {
+                        id: 'plan-empresarial',
+                        nombre: 'Plan Empresarial',
+                        precio_mensual: 149.99,
+                        tokens_mes: 15000,
+                        dispositivos_concurrentes: 25,
+                        descripcion: 'Para grandes importadoras'
+                    },
+                    {
+                        id: 'plan-corporativo',
+                        nombre: 'Plan Corporativo',
+                        precio_mensual: 299.99,
+                        tokens_mes: 50000,
+                        dispositivos_concurrentes: 100,
+                        descripcion: 'Para corporaciones grandes'
+                    },
+                    {
+                        id: 'plan-ilimitado',
+                        nombre: 'Plan Ilimitado',
+                        precio_mensual: 599.99,
+                        tokens_mes: -1,
+                        dispositivos_concurrentes: -1,
+                        descripcion: 'Sin límites para grandes corporaciones'
+                    }
+                ]
+            };
+        }
+        
+        displayPlanes(planesData.planes || planesData);
         
         // Cargar historial de consumo demo
         loadConsumoHistory();
@@ -2226,8 +2760,9 @@ function displayPlanes(planes) {
         return;
     }
     
-    // Plan actual demo - profesional por defecto
-    const planActual = 'profesional';
+    // Obtener el plan actual del usuario desde userInfo
+    const planActual = userInfo?.plan?.id || userInfo?.empresa?.plan_id || 'plan-basico';
+    console.log('📋 Plan actual del usuario:', planActual);
     
     planesGrid.innerHTML = '';
     
@@ -2237,29 +2772,33 @@ function displayPlanes(planes) {
         const planCard = document.createElement('div');
         planCard.className = `plan-card ${isCurrentPlan ? 'current' : 'selectable'}`;
         
-        // Formatear tokens
+        // Formatear tokens usando los nombres correctos de la BD
+        const tokens = plan.tokens_mes || plan.tokens_incluidos || 0;
         let tokensText;
-        if (plan.tokens_incluidos === -1) {
+        if (tokens === -1) {
             tokensText = 'Ilimitados';
-        } else if (plan.tokens_incluidos >= 1000) {
-            tokensText = (plan.tokens_incluidos / 1000) + 'K';
+        } else if (tokens >= 1000) {
+            tokensText = (tokens / 1000) + 'K';
         } else {
-            tokensText = plan.tokens_incluidos.toString();
+            tokensText = tokens.toString();
         }
         
         // Formatear dispositivos
-        let dispositivosText = plan.max_dispositivos === -1 ? 'Ilimitados' : plan.max_dispositivos;
+        const dispositivos = plan.dispositivos_concurrentes || plan.max_dispositivos || 0;
+        let dispositivosText = dispositivos === -1 ? 'Ilimitados' : dispositivos;
+        
+        const precio = plan.precio_mensual !== undefined ? plan.precio_mensual : (plan.precio || 0);
         
         planCard.innerHTML = `
             <div class="plan-header">
                 <div class="plan-name">${plan.nombre}</div>
-                <div class="plan-price">$${plan.precio}/mes</div>
+                <div class="plan-price">$${precio.toFixed(2)}/mes</div>
             </div>
             <div class="plan-details">
-                <div class="plan-tokens">${tokensText} tokens/mes</div>
-                <div class="plan-devices">${dispositivosText} dispositivos</div>
+                <div class="plan-tokens">⚡ ${tokensText} tokens/mes</div>
+                <div class="plan-devices">📱 ${dispositivosText} dispositivos</div>
             </div>
-            <div class="plan-description">${plan.descripcion}</div>
+            <div class="plan-description">${plan.descripcion || ''}</div>
             ${isCurrentPlan ? 
                 '<div class="current-badge"><i class="fas fa-check-circle"></i> Plan Actual</div>' :
                 `<button class="plan-select-button" onclick="cambiarPlan('${plan.id}')">
@@ -2273,53 +2812,52 @@ function displayPlanes(planes) {
 }
 
 async function cambiarPlan(planId) {
-    const confirmacion = confirm(`¿Estás seguro de que quieres cambiar al plan ${planId}? (Modo Demo - cambio simulado)`);
+    if (!authToken) {
+        showNotification('Debes iniciar sesión para cambiar de plan', 'error');
+        showLoginModal();
+        return;
+    }
+    
+    const confirmacion = confirm(`¿Estás seguro de que quieres cambiar a este plan?`);
     
     if (!confirmacion) return;
     
     try {
-        // Simular cambio de plan en modo demo - TODOS LOS PLANES ORIGINALES
-        const planesDemo = {
-            'gratuito': { nombre: 'Plan Gratuito', precio_mensual_usd: 0, tokens_mes: 100, dispositivos_concurrentes: 1 },
-            'basico': { nombre: 'Plan Básico', precio_mensual_usd: 29.99, tokens_mes: 1000, dispositivos_concurrentes: 3 },
-            'profesional': { nombre: 'Plan Profesional', precio_mensual_usd: 59.99, tokens_mes: 5000, dispositivos_concurrentes: 8 },
-            'empresarial': { nombre: 'Plan Empresarial', precio_mensual_usd: 149.99, tokens_mes: 15000, dispositivos_concurrentes: 25 },
-            'corporativo': { nombre: 'Plan Corporativo', precio_mensual_usd: 299.99, tokens_mes: 50000, dispositivos_concurrentes: 100 },
-            'ilimitado': { nombre: 'Plan Ilimitado', precio_mensual_usd: 599.99, tokens_mes: -1, dispositivos_concurrentes: -1 }
-        };
-        
-        const nuevoPlan = planesDemo[planId];
-        if (nuevoPlan) {
-            // Actualizar userInfo con el nuevo plan
-            userInfo.plan = {
-                id: planId,
-                ...nuevoPlan
-            };
-            userInfo.tokens_disponibles = nuevoPlan.tokens_mes === -1 ? 999999 : nuevoPlan.tokens_mes;
-            userInfo.tokens_usados_mes = 0; // Reset tokens
-            
-            // Actualizar interfaz
-            updateUserInterface(userInfo);
-            updatePlanInfo();
-            
-            showNotification(`Plan cambiado exitosamente a ${nuevoPlan.nombre} (Demo)`, 'success');
-            
-            // Recargar datos de planes para actualizar la vista
-            loadPlanesData();
-        }
+        const response = await fetch(`${API_BASE_URL}/api/planes/cambiar`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ plan_id: planId })
+        });
         
         const data = await response.json();
         
         if (response.ok && data.success) {
-            showNotification(`Plan actualizado a ${planId} exitosamente`, 'success');
+            showNotification(`✅ ${data.mensaje}`, 'success');
             
-            // Actualizar información del usuario
-            await checkAuthStatus();
+            // Actualizar userInfo con los nuevos datos
+            if (userInfo) {
+                userInfo.plan = data.plan;
+                userInfo.limites = data.limites;
+                userInfo.empresa = data.empresa;
+            }
             
-            // Recargar datos de planes
+            // Actualizar UI
+            updatePlanInfo();
+            
+            // Recargar datos de planes para actualizar la vista
             await loadPlanesData();
             
         } else {
+            if (response.status === 401) {
+                authToken = null;
+                localStorage.removeItem('authToken');
+                showError('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.');
+                showLoginModal();
+                return;
+            }
             showNotification(data.mensaje || 'Error al cambiar plan', 'error');
         }
         
@@ -2405,24 +2943,46 @@ function updatePlanInfo() {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', async function() {
-    // Inicializar tabs
-    showTab('texto');
+    console.log('✅ DOM cargado - Script inicializado');
     
-    // Verificar conexión con el backend al cargar la página
-    const conectado = await verificarConexion();
-    
-    if (conectado) {
-        // Mostrar indicador visual de que está conectado
-        const header = document.querySelector('.header-content p');
-        header.innerHTML += ' <span style="color: #10b981;">● Conectado</span>';
+    // Sincronizar authToken con localStorage siempre
+    const storedToken = localStorage.getItem('authToken');
+    if (storedToken && storedToken !== authToken) {
+        authToken = storedToken;
+        console.log('🔄 Token sincronizado desde localStorage');
     }
     
-    // Enter key en textarea
-    document.getElementById('producto-texto').addEventListener('keydown', function(event) {
-        if (event.ctrlKey && event.key === 'Enter') {
-            clasificarTexto();
+    // Solo ejecutar si estamos en la página principal (no en admin panel)
+    const isMainPage = document.getElementById('producto-texto') !== null;
+    
+    if (isMainPage) {
+        // Inicializar tabs
+        showTab('texto');
+        
+        // Restaurar sesión si existe token
+        await restaurarSesion();
+        
+        // Verificar conexión con el backend al cargar la página
+        const conectado = await verificarConexion();
+        
+        if (conectado) {
+            // Mostrar indicador visual de que está conectado
+            const header = document.querySelector('.header-content p');
+            if (header) {
+                header.innerHTML += ' <span style="color: #10b981;">● Conectado</span>';
+            }
         }
-    });
+        
+        // Enter key en textarea
+        const productoTexto = document.getElementById('producto-texto');
+        if (productoTexto) {
+            productoTexto.addEventListener('keydown', function(event) {
+                if (event.ctrlKey && event.key === 'Enter') {
+                    clasificarTexto();
+                }
+            });
+        }
+    }
     
     // Drag and drop para archivos
     const fileUploadArea = document.querySelector('.file-upload-area');
@@ -2463,22 +3023,71 @@ document.addEventListener('DOMContentLoaded', async function() {
 // Función duplicada eliminada - usando la función principal arriba
 
 async function cambiarPlan(planId) {
-    // Funcionamiento demo sin autenticación
-    const confirmacion = confirm(`¿Estás seguro de que quieres cambiar al plan ${planId}? (Modo Demo)`);
+    if (!authToken) {
+        mostrarNotificacion('Debes iniciar sesión para cambiar de plan', 'warning');
+        return;
+    }
+    
+    const confirmacion = confirm(`¿Estás seguro de que quieres cambiar de plan?`);
     if (!confirmacion) return;
     
     try {
-        // Simular cambio de plan en modo demo
-        showNotification(`Plan cambiado exitosamente a ${planId}! (Modo Demo)`, 'success');
+        console.log('🔄 Cambiando plan a:', planId);
+        
+        const response = await fetch(`${API_BASE_URL}/api/planes/cambiar`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ plan_id: planId })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            if (data.error === 'same_plan') {
+                mostrarNotificacion('Ya tienes este plan activo', 'info');
+            } else {
+                throw new Error(data.mensaje || 'Error al cambiar el plan');
+            }
+            return;
+        }
+        
+        console.log('✅ Plan cambiado exitosamente:', data);
+        
+        // Actualizar userInfo con los nuevos datos
+        if (data.plan && data.limites && data.empresa) {
+            userInfo = {
+                ...userInfo,
+                empresa: data.empresa,
+                plan: data.plan,
+                limites: data.limites
+            };
+            localStorage.setItem('userInfo', JSON.stringify(userInfo));
+            
+            // Actualizar UI inmediatamente
+            const tokensInfo = document.getElementById('tokens-info');
+            if (tokensInfo) {
+                tokensInfo.textContent = `${data.limites.tokens_consumidos.toLocaleString()} / ${data.limites.tokens_limite_mensual.toLocaleString()} tokens`;
+            }
+            
+            const devicesInfo = document.getElementById('devices-info');
+            if (devicesInfo) {
+                devicesInfo.textContent = `${data.limites.dispositivos_activos} / ${data.limites.dispositivos_limite} dispositivos`;
+            }
+        }
+        
+        mostrarNotificacion(`Plan actualizado exitosamente a ${data.plan.nombre}`, 'success');
         
         // Recargar los planes para actualizar el estado
         setTimeout(() => {
             loadPlanesData();
-        }, 1000);
+        }, 500);
         
     } catch (error) {
         console.error('Error cambiando plan:', error);
-        showNotification(`Error: ${error.message}`, 'error');
+        mostrarNotificacion(`Error: ${error.message}`, 'error');
     }
 }
 
@@ -2486,31 +3095,50 @@ function updatePlanInfo() {
     if (!userInfo) return;
     
     try {
-        // Actualizar información del plan actual
-        document.getElementById('current-plan-name').textContent = userInfo.plan.id;
-        document.getElementById('current-plan-price').textContent = `$${userInfo.plan.precio_mensual_usd}/mes`;
-        
-        let tokensFormatted = (userInfo.plan.tokens_mes / 1000).toLocaleString() + 'K';
-        if (userInfo.plan.tokens_mes >= 1000000) {
-            tokensFormatted = (userInfo.plan.tokens_mes / 1000000).toLocaleString() + 'M';
+        // Verificar que existan las propiedades necesarias
+        if (!userInfo.plan || !userInfo.limites) {
+            console.warn('⚠️ Datos de plan o límites no disponibles en userInfo');
+            return;
         }
-        document.getElementById('current-plan-tokens').textContent = `${tokensFormatted} tokens/mes`;
-        document.getElementById('current-plan-devices').textContent = `${userInfo.plan.dispositivos_concurrentes} dispositivos`;
+        
+        // Actualizar información del plan actual
+        const planNameEl = document.getElementById('current-plan-name');
+        if (planNameEl) planNameEl.textContent = userInfo.plan.id || 'N/A';
+        
+        const planPriceEl = document.getElementById('current-plan-price');
+        if (planPriceEl) planPriceEl.textContent = `$${userInfo.plan.precio_mensual_usd || 0}/mes`;
+        
+        let tokensFormatted = ((userInfo.plan.tokens_mes || 0) / 1000).toLocaleString() + 'K';
+        if (userInfo.plan.tokens_mes >= 1000000) {
+            tokensFormatted = ((userInfo.plan.tokens_mes || 0) / 1000000).toLocaleString() + 'M';
+        }
+        const planTokensEl = document.getElementById('current-plan-tokens');
+        if (planTokensEl) planTokensEl.textContent = `${tokensFormatted} tokens/mes`;
+        
+        const planDevicesEl = document.getElementById('current-plan-devices');
+        if (planDevicesEl) planDevicesEl.textContent = `${userInfo.plan.dispositivos_concurrentes || 0} dispositivos`;
         
         // Actualizar barra de progreso
-        const porcentajeUso = (userInfo.limites.tokens_consumidos / userInfo.limites.tokens_limite_mensual) * 100;
-        document.getElementById('tokens-progress').style.width = `${Math.min(porcentajeUso, 100)}%`;
-        document.getElementById('tokens-usage-text').textContent = 
-            `${userInfo.limites.tokens_consumidos.toLocaleString()} / ${userInfo.limites.tokens_limite_mensual.toLocaleString()} tokens`;
+        const tokensConsumidos = userInfo.limites.tokens_consumidos || 0;
+        const tokensLimite = userInfo.limites.tokens_limite_mensual || 1;
+        const porcentajeUso = (tokensConsumidos / tokensLimite) * 100;
+        
+        const progressBar = document.getElementById('tokens-progress');
+        if (progressBar) progressBar.style.width = `${Math.min(porcentajeUso, 100)}%`;
+        
+        const usageTextEl = document.getElementById('tokens-usage-text');
+        if (usageTextEl) usageTextEl.textContent = 
+            `${tokensConsumidos.toLocaleString()} / ${tokensLimite.toLocaleString()} tokens`;
             
         // Cambiar color de la barra según el uso
-        const progressBar = document.getElementById('tokens-progress');
-        if (porcentajeUso > 90) {
-            progressBar.style.background = 'linear-gradient(90deg, var(--error-color), var(--warning-color))';
-        } else if (porcentajeUso > 70) {
-            progressBar.style.background = 'linear-gradient(90deg, var(--warning-color), var(--success-color))';
-        } else {
-            progressBar.style.background = 'linear-gradient(90deg, var(--success-color), var(--primary-color))';
+        if (progressBar) {
+            if (porcentajeUso > 90) {
+                progressBar.style.background = 'linear-gradient(90deg, var(--error-color), var(--warning-color))';
+            } else if (porcentajeUso > 70) {
+                progressBar.style.background = 'linear-gradient(90deg, var(--warning-color), var(--success-color))';
+            } else {
+                progressBar.style.background = 'linear-gradient(90deg, var(--success-color), var(--primary-color))';
+            }
         }
         
     } catch (error) {
@@ -2995,7 +3623,7 @@ function createEditedResultCard(data) {
 }
 
 // Función mejorada de exportación para ImportDUA
-function showExportOptions() {
+async function showExportOptions() {
     console.log('📤 Iniciando exportación ImportDUA...');
     console.log('📊 JSON a exportar:', JSON.stringify(resultadoActual, null, 2));
     
@@ -3004,16 +3632,131 @@ function showExportOptions() {
         return;
     }
     
-    // Generar XML en formato ImportDUA para SIGA
-    const xmlContent = generateImportDUAXML(resultadoActual);
-    console.log('📝 XML ImportDUA generado');
+    // Validar campos obligatorios antes de exportar
+    const erroresValidacion = validarCamposObligatoriosSIGA(resultadoActual);
+    if (erroresValidacion.length > 0) {
+        mostrarPanelValidacion(erroresValidacion);
+        showNotification('Complete los campos obligatorios antes de exportar', 'error');
+        return;
+    }
     
-    const timestamp = new Date().getTime();
-    const fileName = `ImportDUA_${timestamp}.xml`;
+    // Ocultar panel de validación si todo está correcto
+    ocultarPanelValidacion();
     
-    downloadFile(xmlContent, fileName, 'application/xml');
+    try {
+        // Llamar al backend para generar el XML en formato ImportDUA
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+        const token = localStorage.getItem('authToken');
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        
+        const response = await fetch('http://localhost:3050/generar-xml', {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify(resultadoActual)
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            if (errorData.errores) {
+                const mensajeError = '⚠️ Errores de validación:\n\n' + errorData.errores.join('\n');
+                alert(mensajeError);
+                showNotification('Corrija los errores antes de exportar', 'error');
+                return;
+            }
+            throw new Error(`Error del servidor: ${response.status}`);
+        }
+        
+        const xmlContent = await response.text();
+        console.log('📝 XML ImportDUA generado desde el backend');
+        
+        const timestamp = new Date().getTime();
+        const fileName = `ImportDUA_${timestamp}.xml`;
+        
+        downloadFile(xmlContent, fileName, 'application/xml');
+        
+        showNotification(`✅ XML ImportDUA exportado correctamente: ${fileName}`, 'success');
+    } catch (error) {
+        console.error('❌ Error al generar XML:', error);
+        showNotification('Error al generar XML: ' + error.message, 'error');
+    }
+}
+
+// Función para validar campos obligatorios según requisitos de SIGA
+function validarCamposObligatoriosSIGA(jsonData) {
+    const errores = [];
+    const data = jsonData.ImportDUA?.ImpDeclaration || jsonData;
     
-    showNotification(`✅ XML ImportDUA exportado correctamente: ${fileName}`, 'success');
+    // Validar ClearanceType con formato
+    if (!data.ClearanceType || data.ClearanceType.trim() === '') {
+        errores.push('• ClearanceType es obligatorio (ej: IC38-002)');
+    } else if (!/^IC\d{2}-\d{3}$/.test(data.ClearanceType)) {
+        errores.push('• ClearanceType debe tener formato IC##-### (ej: IC38-002, IC04-001)');
+    }
+    
+    // Validar ImporterCode con formato RNC
+    if (!data.ImporterCode || data.ImporterCode.trim() === '') {
+        errores.push('• ImporterCode es obligatorio (debe comenzar con RNC)');
+    } else if (!data.ImporterCode.startsWith('RNC')) {
+        errores.push('• ImporterCode debe comenzar con RNC seguido de números');
+    } else if (!/^RNC\d+$/.test(data.ImporterCode)) {
+        errores.push('• ImporterCode debe tener formato RNC seguido de números (ej: RNC214101830141)');
+    }
+    
+    // Validar DeclarantCode con formato RNC
+    if (!data.DeclarantCode || data.DeclarantCode.trim() === '') {
+        errores.push('• DeclarantCode es obligatorio (debe comenzar con RNC)');
+    } else if (!data.DeclarantCode.startsWith('RNC')) {
+        errores.push('• DeclarantCode debe comenzar con RNC seguido de números');
+    } else if (!/^RNC\d+$/.test(data.DeclarantCode)) {
+        errores.push('• DeclarantCode debe tener formato RNC seguido de números (ej: RNC214101830141)');
+    }
+    
+    // Validar RegimenCode
+    if (!data.RegimenCode || data.RegimenCode.toString().trim() === '') {
+        errores.push('• RegimenCode es obligatorio (ej: 1, 4, 70)');
+    } else if (!/^\d+$/.test(data.RegimenCode.toString())) {
+        errores.push('• RegimenCode debe ser un número entero (ej: 1, 4, 70)');
+    }
+    
+    // Validar campos numéricos decimales
+    if (data.TotalFOB === undefined || data.TotalFOB === null || data.TotalFOB === '') {
+        errores.push('• TotalFOB es obligatorio (formato: 90513.5000)');
+    }
+    
+    if (data.InsuranceValue === undefined || data.InsuranceValue === null || data.InsuranceValue === '') {
+        errores.push('• InsuranceValue es obligatorio (usar 0.00 si no aplica)');
+    }
+    
+    if (data.FreightValue === undefined || data.FreightValue === null || data.FreightValue === '') {
+        errores.push('• FreightValue es obligatorio (usar 0.00 si no aplica)');
+    }
+    
+    // Validar productos
+    const products = data.ImpDeclarationProduct || [];
+    products.forEach((product, index) => {
+        const productNum = index + 1;
+        
+        if (!product.ProductStatusCode || product.ProductStatusCode.trim() === '') {
+            errores.push(`• Producto ${productNum}: ProductStatusCode es obligatorio (ej: IC04-001)`);
+        }
+        
+        // Validar booleanos
+        if (product.TempProductYN !== 'true' && product.TempProductYN !== 'false' && 
+            product.TempProductYN !== true && product.TempProductYN !== false) {
+            errores.push(`• Producto ${productNum}: TempProductYN debe ser true o false`);
+        }
+        
+        if (product.OrganicYN !== 'true' && product.OrganicYN !== 'false' && 
+            product.OrganicYN !== true && product.OrganicYN !== false) {
+            errores.push(`• Producto ${productNum}: OrganicYN debe ser true o false`);
+        }
+    });
+    
+    return errores;
 }
 
 // Función para generar XML en formato ImportDUA para SIGA
@@ -3939,4 +4682,841 @@ function showManualResult(data) {
     
     resultsDiv.style.display = 'block';
     resultsDiv.scrollIntoView({ behavior: 'smooth' });
+    
+    // Validar y mostrar panel de campos faltantes si es necesario
+    setTimeout(() => {
+        validarYMostrarPanel();
+    }, 500);
+}
+
+// Funciones para panel de validación visual
+function mostrarPanelValidacion(errores) {
+    const panel = document.getElementById('validation-panel');
+    const erroresContainer = document.getElementById('validation-errors');
+    
+    if (!panel || !erroresContainer) return;
+    
+    // Limpiar errores anteriores
+    erroresContainer.innerHTML = '';
+    
+    // Mapeo de campos a los data-field-key en la vista de resultados
+    const campoToFieldKey = {
+        'ClearanceType': 'ClearanceType',
+        'ImporterCode': 'ImporterCode',
+        'DeclarantCode': 'DeclarantCode',
+        'RegimenCode': 'RegimenCode',
+        'TotalFOB': 'TotalFOB',
+        'InsuranceValue': 'InsuranceValue',
+        'FreightValue': 'FreightValue',
+        'ProductStatusCode': 'ProductStatusCode',
+        'TempProductYN': 'TempProductYN',
+        'OrganicYN': 'OrganicYN'
+    };
+    
+    // Crear elementos de error clickeables
+    errores.forEach((error, index) => {
+        const errorItem = document.createElement('div');
+        errorItem.className = 'validation-error-item';
+        
+        // Extraer el nombre del campo del mensaje de error
+        let campoId = null;
+        for (const [campo, fieldKey] of Object.entries(campoToFieldKey)) {
+            if (error.includes(campo)) {
+                campoId = fieldKey;
+                break;
+            }
+        }
+        
+        // Para productos, extraer el índice si existe
+        const productMatch = error.match(/Producto (\d+):/);
+        if (productMatch && campoId) {
+            const productIndex = parseInt(productMatch[1]) - 1;
+            // Ajustar el campo para productos dentro de arrays
+            if (campoId === 'ProductStatusCode' || campoId === 'TempProductYN' || campoId === 'OrganicYN') {
+                campoId = `ImpDeclarationProduct[${productIndex}].${campoId}`;
+            }
+        }
+        
+        errorItem.innerHTML = `
+            <div class="validation-error-icon">
+                <i class="fas fa-exclamation-circle"></i>
+            </div>
+            <div class="validation-error-text">
+                <strong>${index + 1}.</strong> ${error}
+                <span class="field-required-marker"></span>
+            </div>
+        `;
+        
+        // Hacer el item clickeable para ir directamente al campo en la vista de resultados
+        errorItem.style.cursor = 'pointer';
+        errorItem.onclick = () => {
+            // Buscar el campo en la vista de resultados por data-field-key
+            // Intentar con el campoId exacto primero, luego buscar parcialmente
+            let fieldElement = document.querySelector(`[data-field-key="${campoId}"]`);
+            
+            if (!fieldElement) {
+                // Buscar parcialmente (el campo puede estar en un path como ImpDeclaration.ImporterCode)
+                fieldElement = document.querySelector(`[data-field-key$="${campoId}"]`) ||
+                              document.querySelector(`[data-field-key*=".${campoId}"]`) ||
+                              document.querySelector(`[data-field-key*="${campoId}"]`);
+            }
+            
+            if (fieldElement) {
+                console.log('✅ Campo encontrado:', fieldElement);
+                
+                // Ocultar el panel de validación temporalmente para mejor visibilidad
+                const validationPanel = document.getElementById('validation-panel');
+                if (validationPanel) {
+                    validationPanel.style.opacity = '0.3';
+                    validationPanel.style.transition = 'opacity 0.3s';
+                }
+                
+                // Hacer scroll al campo con un pequeño delay
+                setTimeout(() => {
+                    fieldElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    
+                    // Añadir efecto visual temporal de resaltado
+                    fieldElement.style.border = '3px solid #dc2626';
+                    fieldElement.style.boxShadow = '0 0 15px rgba(220, 38, 38, 0.5)';
+                    fieldElement.style.transform = 'scale(1.02)';
+                    fieldElement.style.transition = 'all 0.3s ease';
+                    fieldElement.style.backgroundColor = '#fee2e2';
+                    
+                    // Pulsar el elemento para abrir la edición inline
+                    setTimeout(() => {
+                        fieldElement.click();
+                        
+                        // Restaurar opacidad del panel
+                        if (validationPanel) {
+                            validationPanel.style.opacity = '1';
+                        }
+                    }, 600);
+                    
+                    // Restaurar estilos después de un tiempo
+                    setTimeout(() => {
+                        fieldElement.style.border = '';
+                        fieldElement.style.boxShadow = '';
+                        fieldElement.style.transform = '';
+                        fieldElement.style.backgroundColor = '';
+                    }, 3000);
+                }, 200);
+            } else {
+                console.warn('❌ Campo no encontrado en la vista:', campoId);
+                console.log('Buscando:', campoId);
+                console.log('Elementos disponibles:', Array.from(document.querySelectorAll('[data-field-key]')).map(el => el.getAttribute('data-field-key')));
+                showNotification('Campo no encontrado en la vista. Desplázate manualmente para editarlo.', 'warning');
+            }
+        };
+        
+        erroresContainer.appendChild(errorItem);
+    });
+    
+    // Mostrar el panel
+    panel.style.display = 'block';
+    
+    // Hacer scroll al panel
+    setTimeout(() => {
+        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 100);
+}
+
+function ocultarPanelValidacion() {
+    const panel = document.getElementById('validation-panel');
+    if (panel) {
+        panel.style.display = 'none';
+    }
+}
+
+// Validar automáticamente al mostrar resultados
+function validarYMostrarPanel() {
+    if (!resultadoActual) return;
+    
+    const errores = validarCamposObligatoriosSIGA(resultadoActual);
+    
+    // Primero limpiar todas las advertencias amarillas
+    document.querySelectorAll('.detail-item.has-warning').forEach(item => {
+        item.classList.remove('has-warning');
+    });
+    
+    if (errores.length > 0) {
+        console.log('❌ Hay errores rojos, no se mostrarán advertencias amarillas');
+        mostrarPanelValidacion(errores);
+        mostrarAlertasInline(errores);
+        ocultarPanelAdvertencia(); // Ocultar panel amarillo si hay errores rojos
+    } else {
+        console.log('✅ No hay errores rojos, mostrando advertencias amarillas...');
+        ocultarPanelValidacion();
+        limpiarAlertasInline();
+        
+        // Solo marcar campos vacíos (no obligatorios) con advertencia amarilla si NO hay errores rojos
+        setTimeout(() => {
+            const hayAdvertencias = marcarCamposVaciosConAdvertencia();
+            if (hayAdvertencias) {
+                mostrarPanelAdvertencia();
+            } else {
+                ocultarPanelAdvertencia();
+            }
+        }, 300);
+    }
+}
+
+// Mostrar alertas inline al lado de los campos con error
+function mostrarAlertasInline(errores) {
+    // Primero limpiar alertas existentes
+    limpiarAlertasInline();
+    
+    const data = resultadoActual.ImportDUA?.ImpDeclaration || resultadoActual;
+    
+    // Mapear errores a campos específicos
+    errores.forEach(error => {
+        let campoId = null;
+        let mensajeError = error.replace('• ', '');
+        
+        // Extraer el campo del mensaje de error
+        if (error.includes('ClearanceType')) {
+            campoId = 'ClearanceType';
+        } else if (error.includes('ImporterCode')) {
+            campoId = 'ImporterCode';
+        } else if (error.includes('DeclarantCode')) {
+            campoId = 'DeclarantCode';
+        } else if (error.includes('RegimenCode')) {
+            campoId = 'RegimenCode';
+        } else if (error.includes('TotalFOB')) {
+            campoId = 'TotalFOB';
+        } else if (error.includes('InsuranceValue')) {
+            campoId = 'InsuranceValue';
+        } else if (error.includes('FreightValue')) {
+            campoId = 'FreightValue';
+        } else if (error.includes('ProductStatusCode')) {
+            campoId = 'ProductStatusCode';
+        } else if (error.includes('TempProductYN')) {
+            campoId = 'TempProductYN';
+        } else if (error.includes('OrganicYN')) {
+            campoId = 'OrganicYN';
+        }
+        
+        if (campoId) {
+            // Buscar el elemento del campo
+            const fieldElements = document.querySelectorAll(`[data-field-key*="${campoId}"]`);
+            
+            fieldElements.forEach(fieldElement => {
+                // Marcar el campo con error
+                fieldElement.classList.add('has-error');
+                
+                // Crear alerta inline
+                const alertDiv = document.createElement('div');
+                alertDiv.className = 'field-inline-alert';
+                alertDiv.innerHTML = `
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <div class="field-inline-alert-text">${mensajeError}</div>
+                `;
+                
+                // Insertar la alerta después del campo
+                fieldElement.appendChild(alertDiv);
+            });
+        }
+    });
+}
+
+// Limpiar todas las alertas inline
+function limpiarAlertasInline() {
+    // Remover todas las alertas inline
+    document.querySelectorAll('.field-inline-alert').forEach(alert => alert.remove());
+    
+    // Remover la clase de error de los campos
+    document.querySelectorAll('.detail-item.has-error').forEach(item => {
+        item.classList.remove('has-error');
+    });
+    
+    // Remover la clase de advertencia de los campos
+    document.querySelectorAll('.detail-item.has-warning').forEach(item => {
+        item.classList.remove('has-warning');
+    });
+}
+
+// Marcar campos vacíos con advertencia (amarillo)
+function marcarCamposVaciosConAdvertencia() {
+    console.log('🟨 Marcando campos vacíos con advertencia amarilla...');
+    
+    // Lista de campos obligatorios que no deben marcarse en amarillo
+    const camposObligatorios = [
+        'ClearanceType', 'ImporterCode', 'DeclarantCode', 'RegimenCode',
+        'TotalFOB', 'InsuranceValue', 'FreightValue',
+        'ProductStatusCode', 'TempProductYN', 'OrganicYN'
+    ];
+    
+    // Obtener todos los campos en la vista
+    const todosLosCampos = document.querySelectorAll('[data-field-key]');
+    console.log(`📋 Total de campos encontrados: ${todosLosCampos.length}`);
+    
+    let contadorAdvertencias = 0;
+    
+    todosLosCampos.forEach(fieldElement => {
+        const fieldKey = fieldElement.getAttribute('data-field-key');
+        const valueElement = fieldElement.querySelector('.detail-value');
+        
+        if (!valueElement) return;
+        
+        // Obtener valor original del dataset si existe
+        const valorOriginal = valueElement.dataset.originalValue || valueElement.textContent.trim();
+        const value = valorOriginal.trim();
+        
+        // Verificar si es un campo obligatorio (comparación exacta del nombre del campo)
+        const esObligatorio = camposObligatorios.some(campo => {
+            const fieldKeySimple = fieldKey.split('.').pop(); // Obtener solo el último segmento
+            return fieldKeySimple === campo;
+        });
+        
+        // Considerar vacío si es: '', 'null', 'undefined', '0', '0.00', '0.0000'
+        const estaVacio = value === '' || 
+                         value === 'null' || 
+                         value === 'undefined' || 
+                         value === '(vacío)' ||
+                         value === '0' ||
+                         /^0\.0+$/.test(value); // Matches 0.0, 0.00, 0.0000, etc.
+        
+        // Si el campo está vacío y NO es obligatorio, marcarlo en amarillo
+        if (!esObligatorio && estaVacio) {
+            fieldElement.classList.add('has-warning');
+            contadorAdvertencias++;
+            console.log(`⚠️ Campo vacío (opcional): ${fieldKey} = "${value}"`);
+            
+            // Si el valor está completamente vacío, mostrar texto "(vacío)"
+            if (value === '' || value === 'null' || value === 'undefined') {
+                valueElement.textContent = '(vacío)';
+                valueElement.style.fontStyle = 'italic';
+                valueElement.style.opacity = '0.6';
+            }
+        } else {
+            fieldElement.classList.remove('has-warning');
+        }
+    });
+    
+    console.log(`✅ Total de advertencias amarillas mostradas: ${contadorAdvertencias}`);
+    return contadorAdvertencias > 0;
+}
+
+// Mostrar panel de advertencia amarillo
+function mostrarPanelAdvertencia() {
+    const panel = document.getElementById('warning-panel');
+    if (panel) {
+        panel.style.display = 'block';
+    }
+}
+
+// Ocultar panel de advertencia amarillo
+function ocultarPanelAdvertencia() {
+    const panel = document.getElementById('warning-panel');
+    if (panel) {
+        panel.style.display = 'none';
+    }
+}
+
+// NOTA: Esta función ya no es necesaria porque restaurarSesion() hace todo
+// Verificar si el usuario es admin al cargar la página
+// async function verificarRolAdmin() {
+//     const token = localStorage.getItem('authToken');
+//     if (!token) return;
+//     
+//     try {
+//         const response = await fetch(`${API_BASE_URL}/api/auth/verificar`, {
+//             headers: {
+//                 'Authorization': `Bearer ${token}`
+//             }
+//         });
+//         
+//         const data = await response.json();
+//         
+//         if (data.success && data.usuario && data.usuario.rol === 'admin') {
+//             const btnAdmin = document.getElementById('btn-admin-panel');
+//             if (btnAdmin) {
+//                 btnAdmin.style.display = 'inline-flex';
+//             }
+//         }
+//     } catch (error) {
+//         console.error('Error verificando rol:', error);
+//     }
+// }
+
+// Ejecutar verificación al cargar
+// if (document.readyState === 'loading') {
+//     document.addEventListener('DOMContentLoaded', verificarRolAdmin);
+// } else {
+//     verificarRolAdmin();
+// }
+
+// Función para continuar sin autenticación (Modo Demo)
+function continuarSinAutenticacion() {
+    console.log('🎮 Iniciando modo demo sin autenticación');
+    
+    // Ocultar modal de login
+    const loginModal = document.getElementById('login-modal');
+    if (loginModal) {
+        loginModal.style.display = 'none';
+    }
+    
+    // Mostrar mensaje de bienvenida
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: #10b981;
+        color: white;
+        padding: 15px 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        z-index: 10000;
+        animation: slideIn 0.3s ease;
+    `;
+    notification.innerHTML = '<strong>🎮 Modo Demo Activado</strong><br>Puedes usar todas las funciones sin autenticación';
+    document.body.appendChild(notification);
+    
+    // Auto-eliminar notificación después de 4 segundos
+    setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => {
+            notification.remove();
+        }, 300);
+    }, 4000);
+    
+    // Hacer scroll al inicio de la página
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ==================== SISTEMA DE LOGIN ====================
+
+// Función para generar un device fingerprint simple
+function generateDeviceFingerprint() {
+    // Intentar obtener un fingerprint guardado (PERMANENTE)
+    let fingerprint = localStorage.getItem('deviceFingerprint');
+    
+    if (!fingerprint) {
+        // Generar uno nuevo basado en características del navegador
+        const nav = navigator;
+        const screen = window.screen;
+        
+        const components = [
+            nav.userAgent,
+            nav.language,
+            screen.colorDepth,
+            screen.width + 'x' + screen.height,
+            new Date().getTimezoneOffset(),
+            !!window.sessionStorage,
+            !!window.localStorage
+        ];
+        
+        // Crear un hash simple (SIN Date.now() para que sea consistente)
+        const str = components.join('|');
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash;
+        }
+        
+        // Usar solo el hash, sin timestamp, para que sea permanente
+        fingerprint = 'fp_' + Math.abs(hash).toString(36);
+        
+        // Guardar de forma PERMANENTE en localStorage
+        localStorage.setItem('deviceFingerprint', fingerprint);
+        console.log('🆕 Nuevo device fingerprint generado:', fingerprint);
+    } else {
+        console.log('♻️ Usando device fingerprint existente:', fingerprint);
+    }
+    
+    return fingerprint;
+}
+
+// Inicializar event listener del formulario de login
+// Se ejecuta cuando el DOM está listo
+(function initLoginForm() {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', setupLoginForm);
+    } else {
+        setupLoginForm();
+    }
+})();
+
+function setupLoginForm() {
+    const loginForm = document.getElementById('login-form');
+    if (loginForm && !loginForm.hasAttribute('data-listener-added')) {
+        loginForm.setAttribute('data-listener-added', 'true');
+        loginForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            await handleLogin();
+        });
+    }
+}
+
+// Función para manejar el login
+async function handleLogin() {
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    const btnLogin = document.getElementById('btn-login');
+    const loginError = document.getElementById('login-error');
+    
+    // Validar campos
+    if (!email || !password) {
+        mostrarErrorLogin('Por favor completa todos los campos');
+        return;
+    }
+    
+    // Deshabilitar botón y mostrar loading
+    btnLogin.disabled = true;
+    btnLogin.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Iniciando sesión...';
+    loginError.style.display = 'none';
+    
+    try {
+        // Generar un device fingerprint simple
+        const deviceFingerprint = generateDeviceFingerprint();
+        
+        const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Device-Fingerprint': deviceFingerprint
+            },
+            body: JSON.stringify({
+                correo: email,
+                contrasena: password
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            if (data.requiere_2fa) {
+                // Mostrar modal de 2FA
+                mostrarModal2FA(data.usuario_id);
+            } else {
+                // Login exitoso sin 2FA
+                console.log('✅ Login exitoso, guardando datos...', data);
+                
+                authToken = data.token;
+                localStorage.setItem('authToken', data.token);
+                console.log('💾 Token guardado en localStorage');
+                
+                // Guardar info del usuario si viene en la respuesta
+                if (data.usuario) {
+                    userInfo = {
+                        ...data.usuario,
+                        empresa: data.empresa,
+                        plan: data.plan,
+                        limites: data.limites
+                    };
+                    localStorage.setItem('userInfo', JSON.stringify(userInfo));
+                    console.log('💾 UserInfo guardado:', userInfo);
+                    
+                    // Actualizar UI de tokens y dispositivos INMEDIATAMENTE
+                    if (data.limites) {
+                        const tokensInfo = document.getElementById('tokens-info');
+                        if (tokensInfo) {
+                            tokensInfo.textContent = `${(data.limites.tokens_consumidos || 0).toLocaleString()} / ${(data.limites.tokens_limite_mensual || 0).toLocaleString()} tokens`;
+                            console.log('✅ Tokens actualizados en UI:', tokensInfo.textContent);
+                        }
+                        
+                        const devicesInfo = document.getElementById('devices-info');
+                        if (devicesInfo) {
+                            devicesInfo.textContent = `${data.limites.dispositivos_activos || 0} / ${data.limites.dispositivos_limite || 0} dispositivos`;
+                            console.log('✅ Dispositivos actualizados en UI:', devicesInfo.textContent);
+                        }
+                    }
+                    
+                    // Mostrar contenedor de auth-info
+                    const authInfo = document.getElementById('auth-info');
+                    if (authInfo) {
+                        authInfo.style.display = 'flex';
+                    }
+                    
+                    // Mostrar botón de historial
+                    const btnHistorial = document.getElementById('tab-historial-btn');
+                    if (btnHistorial) {
+                        btnHistorial.style.display = 'inline-block';
+                    }
+                    
+                    // Mostrar botón de logout
+                    const btnLogout = document.querySelector('.btn-logout');
+                    if (btnLogout) {
+                        btnLogout.style.setProperty('display', 'inline-flex', 'important');
+                        btnLogout.style.visibility = 'visible';
+                        btnLogout.style.opacity = '1';
+                        console.log('✅ Botón logout mostrado');
+                    } else {
+                        console.warn('⚠️ No se encontró el botón de logout');
+                    }
+                    
+                    // Si es admin, mostrar botón
+                    if (data.usuario.rol === 'admin') {
+                        const btnAdmin = document.getElementById('btn-admin-panel');
+                        if (btnAdmin) {
+                            btnAdmin.style.display = 'inline-flex';
+                            console.log('✅ Botón admin mostrado');
+                        }
+                    }
+                }
+                
+                cerrarModalLogin();
+                mostrarNotificacion('✅ Sesión iniciada correctamente', 'success');
+            }
+        } else {
+            mostrarErrorLogin(data.mensaje || 'Credenciales incorrectas');
+        }
+        
+    } catch (error) {
+        console.error('Error en login:', error);
+        mostrarErrorLogin('Error de conexión con el servidor. Verifica que el servidor esté corriendo.');
+    } finally {
+        // Restaurar botón
+        btnLogin.disabled = false;
+        btnLogin.innerHTML = '<i class="fas fa-sign-in-alt"></i> Iniciar Sesión';
+    }
+}
+
+// Mostrar error de login
+function mostrarErrorLogin(mensaje) {
+    const loginError = document.getElementById('login-error');
+    if (loginError) {
+        loginError.textContent = mensaje;
+        loginError.style.display = 'block';
+    }
+}
+
+// Restaurar sesión desde localStorage
+async function restaurarSesion() {
+    const token = localStorage.getItem('authToken');
+    const userInfoStr = localStorage.getItem('userInfo');
+    
+    console.log('🔍 Restaurando sesión...', { 
+        tieneToken: !!token, 
+        tieneUserInfo: !!userInfoStr 
+    });
+    
+    if (token && userInfoStr) {
+        // Restaurar variables globales
+        authToken = token;
+        userInfo = JSON.parse(userInfoStr);
+        console.log('💾 Sesión restaurada desde localStorage:', userInfo);
+        
+        // Actualizar UI inmediatamente con datos de localStorage
+        if (userInfo.limites) {
+            const tokensInfo = document.getElementById('tokens-info');
+            if (tokensInfo) {
+                tokensInfo.textContent = `${(userInfo.limites.tokens_consumidos || 0).toLocaleString()} / ${(userInfo.limites.tokens_limite_mensual || 0).toLocaleString()} tokens`;
+            }
+            
+            const devicesInfo = document.getElementById('devices-info');
+            if (devicesInfo) {
+                devicesInfo.textContent = `${userInfo.limites.dispositivos_activos || 0} / ${userInfo.limites.dispositivos_limite || 0} dispositivos`;
+            }
+        }
+        
+        // Mostrar contenedor de auth-info
+        const authInfo = document.getElementById('auth-info');
+        if (authInfo) {
+            authInfo.style.display = 'flex';
+            console.log('✅ Contenedor auth-info mostrado');
+        }
+        
+        // Mostrar botón de historial
+        const btnHistorial = document.getElementById('tab-historial-btn');
+        if (btnHistorial) {
+            btnHistorial.style.display = 'inline-block';
+        }
+        
+        // Ocultar modal de login inmediatamente
+        const loginModal = document.getElementById('login-modal');
+        if (loginModal) {
+            loginModal.style.display = 'none';
+            console.log('✅ Modal de login ocultado');
+        }
+        
+        // Mostrar botón de logout con múltiples selectores
+        console.log('🔍 Buscando botón de logout...');
+        const btnLogout = document.querySelector('.btn-logout');
+        const btnLogout2 = document.querySelector('button.btn-logout');
+        const allButtons = document.querySelectorAll('button');
+        
+        console.log('Botón logout encontrado (querySelector):', btnLogout);
+        console.log('Botón logout encontrado (querySelector específico):', btnLogout2);
+        console.log('Total de botones en la página:', allButtons.length);
+        
+        if (btnLogout) {
+            btnLogout.style.setProperty('display', 'inline-flex', 'important');
+            btnLogout.style.visibility = 'visible';
+            btnLogout.style.opacity = '1';
+            
+            // Información de debugging
+            const rect = btnLogout.getBoundingClientRect();
+            console.log('✅ Botón logout mostrado, style:', btnLogout.style.display);
+            console.log('Computed style:', window.getComputedStyle(btnLogout).display);
+            console.log('Posición del botón:', {
+                top: rect.top,
+                left: rect.left,
+                width: rect.width,
+                height: rect.height,
+                visible: rect.top >= 0 && rect.left >= 0 && rect.top < window.innerHeight && rect.left < window.innerWidth
+            });
+            console.log('Padre del botón:', btnLogout.parentElement);
+            console.log('Estilos del padre:', window.getComputedStyle(btnLogout.parentElement));
+            
+            // Hacer scroll al botón para asegurarnos de que esté en pantalla
+            btnLogout.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } else {
+            console.warn('⚠️ No se encontró el botón de logout con querySelector');
+            // Intentar buscar por onclick
+            const btnPorOnclick = Array.from(allButtons).find(btn => btn.onclick && btn.onclick.toString().includes('logout'));
+            if (btnPorOnclick) {
+                console.log('✅ Botón encontrado por onclick:', btnPorOnclick);
+                btnPorOnclick.style.display = 'inline-flex';
+            }
+        }
+        
+        // Si es admin, mostrar botón
+        if (userInfo.rol === 'admin') {
+            const btnAdmin = document.getElementById('btn-admin-panel');
+            if (btnAdmin) {
+                btnAdmin.style.display = 'inline-flex';
+                console.log('✅ Botón admin mostrado');
+            }
+        }
+        
+        // Verificar token en segundo plano (sin limpiar la UI si falla)
+        setTimeout(async () => {
+            try {
+                console.log('📡 Verificando validez del token...');
+                const response = await fetch(`${API_BASE_URL}/api/auth/verificar`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('✅ Token válido - sesión activa');
+                    
+                    // Actualizar userInfo con datos actualizados del servidor
+                    if (data.usuario) {
+                        userInfo = {
+                            ...data.usuario,
+                            empresa: data.empresa,
+                            plan: data.plan,
+                            limites: data.limites
+                        };
+                        localStorage.setItem('userInfo', JSON.stringify(userInfo));
+                    }
+                    
+                    // Actualizar información de tokens y dispositivos en la UI
+                    if (data.limites) {
+                        const tokensInfo = document.getElementById('tokens-info');
+                        if (tokensInfo) {
+                            tokensInfo.textContent = `${data.limites.tokens_consumidos.toLocaleString()} / ${data.limites.tokens_limite_mensual.toLocaleString()} tokens`;
+                        }
+                        
+                        const devicesInfo = document.getElementById('devices-info');
+                        if (devicesInfo) {
+                            devicesInfo.textContent = `${data.limites.dispositivos_activos} / ${data.limites.dispositivos_limite} dispositivos`;
+                        }
+                    }
+                } else {
+                    console.log('⚠️ Token inválido (status: ' + response.status + ') - se pedirá login al intentar una acción');
+                    // NO limpiar la sesión aquí, solo marcar que necesita re-login
+                    // La UI sigue mostrando los datos de localStorage
+                }
+            } catch (error) {
+                console.log('⚠️ Error verificando token:', error.message);
+                // No hacer nada, dejar que funcione con los datos de localStorage
+            }
+        }, 500);
+        
+    } else {
+        console.log('ℹ️ No hay sesión guardada, mostrando login');
+    }
+}
+
+// Limpiar sesión
+function limpiarSesion() {
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('userInfo');
+    authToken = null;
+    userInfo = null;
+    
+    // Ocultar contenedor auth-info
+    const authInfo = document.getElementById('auth-info');
+    if (authInfo) {
+        authInfo.style.display = 'none';
+    }
+    
+    // Ocultar botones
+    const btnAdmin = document.getElementById('btn-admin-panel');
+    if (btnAdmin) {
+        btnAdmin.style.display = 'none';
+    }
+    
+    const btnHistorial = document.getElementById('tab-historial-btn');
+    if (btnHistorial) {
+        btnHistorial.style.display = 'none';
+    }
+    
+    const btnLogout = document.querySelector('.btn-logout');
+    if (btnLogout) {
+        btnLogout.style.display = 'none';
+    }
+}
+
+// Cerrar modal de login
+function cerrarModalLogin() {
+    const loginModal = document.getElementById('login-modal');
+    if (loginModal) {
+        loginModal.style.display = 'none';
+    }
+}
+
+// Mostrar modal de 2FA
+function mostrarModal2FA(usuarioId) {
+    const loginModal = document.getElementById('login-modal');
+    const tfaModal = document.getElementById('2fa-modal');
+    
+    if (loginModal) loginModal.style.display = 'none';
+    if (tfaModal) {
+        tfaModal.style.display = 'flex';
+        // Guardar usuario ID para el siguiente paso
+        tfaModal.dataset.usuarioId = usuarioId;
+    }
+}
+
+// Función para mostrar notificaciones
+function mostrarNotificacion(mensaje, tipo = 'info') {
+    const notification = document.createElement('div');
+    const colores = {
+        success: '#10b981',
+        error: '#ef4444',
+        info: '#3b82f6',
+        warning: '#f59e0b'
+    };
+    
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: ${colores[tipo] || colores.info};
+        color: white;
+        padding: 15px 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        z-index: 10000;
+        animation: slideIn 0.3s ease;
+        max-width: 400px;
+    `;
+    notification.textContent = mensaje;
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => {
+            notification.remove();
+        }, 300);
+    }, 4000);
 }

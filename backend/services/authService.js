@@ -7,8 +7,8 @@ const { validarUsuario, validarSesion, generarId } = require('../models/schemas'
 const JWT_SECRET = process.env.JWT_SECRET || 'clasificador-arancelario-secret-key-2025';
 const JWT_EXPIRES_IN = '24h';
 
-// Tiempo de inactividad para logout automático (30 minutos)
-const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutos en millisegundos
+// Tiempo de inactividad para logout automático (24 horas - aumentado de 30 min)
+const INACTIVITY_TIMEOUT = 24 * 60 * 60 * 1000; // 24 horas en millisegundos
 
 class AuthService {
     
@@ -56,13 +56,21 @@ class AuthService {
             
             const result = await db.collection('usuarios').insertOne(nuevoUsuario);
             
+            // Enviar email de verificación
+            const SecurityService = require('./securityService');
+            await SecurityService.enviarVerificacionEmail(
+                nuevoUsuario.usuario_id, 
+                nuevoUsuario.correo, 
+                nuevoUsuario.nombre
+            );
+            
             // Remover hash de contraseña de la respuesta
             delete nuevoUsuario.contrasena_hash;
             
             return { 
                 success: true, 
                 usuario: nuevoUsuario,
-                mensaje: 'Usuario registrado correctamente.' 
+                mensaje: 'Usuario registrado correctamente. Revisa tu correo para verificar tu cuenta.' 
             };
             
         } catch (error) {
@@ -92,6 +100,16 @@ class AuthService {
                 return { success: false, error: 'auth_failed', mensaje: 'Credenciales inválidas.' };
             }
             
+            // Si el usuario tiene 2FA activado, retornar indicador de que se requiere 2FA
+            if (usuario.two_factor_enabled) {
+                return {
+                    success: false,
+                    requires_2fa: true,
+                    usuario_id: usuario.usuario_id,
+                    mensaje: 'Se requiere código de autenticación de dos factores.'
+                };
+            }
+            
             // Obtener información de la empresa y plan
             const empresa = await db.collection('empresas').findOne({ 
                 empresa_id: usuario.empresa_id 
@@ -107,16 +125,6 @@ class AuthService {
             
             if (!plan) {
                 return { success: false, error: 'plan_not_found', mensaje: 'El plan asignado a tu empresa no existe o no está activo.' };
-            }
-            
-            // Verificar tokens restantes
-            const tokensRestantes = empresa.tokens_limite_mensual - empresa.tokens_consumidos;
-            if (tokensRestantes <= 0) {
-                return { 
-                    success: false, 
-                    error: 'quota_exceeded', 
-                    mensaje: 'Has agotado tus tokens mensuales. Actualiza tu plan o espera el siguiente ciclo.' 
-                };
             }
             
             // Verificar límite de dispositivos concurrentes
@@ -184,6 +192,9 @@ class AuthService {
             
             const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
             
+            // Calcular tokens restantes (solo para mostrar, no bloquea login)
+            const tokensRestantes = empresa.tokens_limite_mensual - empresa.tokens_consumidos;
+            
             // Preparar respuesta (sin datos sensibles)
             const respuesta = {
                 success: true,
@@ -192,7 +203,8 @@ class AuthService {
                     usuario_id: usuario.usuario_id,
                     nombre: usuario.nombre,
                     correo: usuario.correo,
-                    empresa_id: empresa.empresa_id
+                    empresa_id: empresa.empresa_id,
+                    rol: usuario.rol || 'user'
                 },
                 empresa: {
                     empresa_id: empresa.empresa_id,
@@ -222,6 +234,125 @@ class AuthService {
         }
     }
     
+    // Completar login con verificación 2FA
+    static async completarLoginCon2FA(usuarioId, codigo, esBackupCode, deviceFingerprint, ip) {
+        try {
+            const TwoFactorService = require('./twoFactorService');
+            const db = getDB();
+            
+            // Verificar código 2FA
+            const verificacion = await TwoFactorService.verificarCodigoTwoFactor(usuarioId, codigo, esBackupCode);
+            
+            if (!verificacion.valid) {
+                return { success: false, error: 'invalid_2fa_code', mensaje: 'Código 2FA inválido.' };
+            }
+            
+            // Obtener usuario, empresa y plan
+            const usuario = await db.collection('usuarios').findOne({ usuario_id: usuarioId });
+            const empresa = await db.collection('empresas').findOne({ empresa_id: usuario.empresa_id });
+            const plan = await db.collection('planes').findOne({ id: empresa.plan_id });
+            
+            // Verificar límite de dispositivos
+            const sesionesActivas = await db.collection('sesiones').countDocuments({
+                empresa_id: empresa.empresa_id,
+                activo: true
+            });
+            
+            const sesionExistente = await db.collection('sesiones').findOne({
+                empresa_id: empresa.empresa_id,
+                device_fingerprint: deviceFingerprint,
+                activo: true
+            });
+            
+            if (!sesionExistente && sesionesActivas >= plan.dispositivos_concurrentes) {
+                return { 
+                    success: false, 
+                    error: 'devices_limit', 
+                    mensaje: 'Límite de dispositivos alcanzado.' 
+                };
+            }
+            
+            // Crear o actualizar sesión
+            const ahora = new Date().toISOString();
+            let sesionId;
+            
+            if (sesionExistente) {
+                sesionId = sesionExistente.sesion_id;
+                await db.collection('sesiones').updateOne(
+                    { sesion_id: sesionId },
+                    { 
+                        $set: { 
+                            ts_ultima_actividad: ahora,
+                            ip: ip,
+                            activo: true
+                        } 
+                    }
+                );
+            } else {
+                sesionId = generarId('ses');
+                const nuevaSesion = {
+                    sesion_id: sesionId,
+                    empresa_id: empresa.empresa_id,
+                    usuario_id: usuario.usuario_id,
+                    device_fingerprint: deviceFingerprint,
+                    ip: ip,
+                    activo: true,
+                    ts_login: ahora,
+                    ts_ultima_actividad: ahora
+                };
+                
+                await db.collection('sesiones').insertOne(nuevaSesion);
+            }
+            
+            // Generar JWT token
+            const tokenPayload = {
+                usuario_id: usuario.usuario_id,
+                empresa_id: empresa.empresa_id,
+                sesion_id: sesionId,
+                device_fingerprint: deviceFingerprint
+            };
+            
+            const jwtToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+            
+            // Calcular tokens restantes (solo para mostrar, no bloquea login)
+            const tokensRestantes = empresa.tokens_limite_mensual - empresa.tokens_consumidos;
+            
+            return {
+                success: true,
+                token: jwtToken,
+                usuario: {
+                    usuario_id: usuario.usuario_id,
+                    nombre: usuario.nombre,
+                    correo: usuario.correo,
+                    empresa_id: empresa.empresa_id
+                },
+                empresa: {
+                    empresa_id: empresa.empresa_id,
+                    nombre: empresa.nombre,
+                    plan_id: empresa.plan_id
+                },
+                plan: {
+                    id: plan.id,
+                    tokens_mes: plan.tokens_mes,
+                    dispositivos_concurrentes: plan.dispositivos_concurrentes
+                },
+                limites: {
+                    tokens_limite_mensual: empresa.tokens_limite_mensual,
+                    tokens_consumidos: empresa.tokens_consumidos,
+                    tokens_restantes: tokensRestantes,
+                    dispositivos_activos: sesionesActivas,
+                    dispositivos_limite: plan.dispositivos_concurrentes
+                },
+                backup_code_used: verificacion.backup_code_used || false,
+                mensaje: 'Sesión iniciada correctamente con 2FA.'
+            };
+            
+        } catch (error) {
+            console.error('Error completando login con 2FA:', error);
+            return { success: false, error: 'server_error', mensaje: 'Error interno del servidor.' };
+        }
+    }
+    
     // Verificar token JWT y validar sesión
     static async verificarToken(token) {
         try {
@@ -230,8 +361,8 @@ class AuthService {
             
             const db = getDB();
             
-            // Verificar que la sesión sigue activa
-            const sesion = await db.collection('sesiones').findOne({
+            // Buscar la sesión (primero con activo: true)
+            let sesion = await db.collection('sesiones').findOne({
                 sesion_id: decoded.sesion_id,
                 usuario_id: decoded.usuario_id,
                 empresa_id: decoded.empresa_id,
@@ -239,7 +370,30 @@ class AuthService {
                 activo: true
             });
             
+            // Si no se encuentra con activo: true, buscar sin ese filtro
             if (!sesion) {
+                sesion = await db.collection('sesiones').findOne({
+                    sesion_id: decoded.sesion_id,
+                    usuario_id: decoded.usuario_id,
+                    empresa_id: decoded.empresa_id,
+                    device_fingerprint: decoded.device_fingerprint
+                });
+                
+                if (sesion && !sesion.activo) {
+                    // La sesión existe pero está inactiva - REACTIVARLA
+                    console.log('ℹ️ Reactivando sesión que estaba marcada como inactiva');
+                    
+                    await db.collection('sesiones').updateOne(
+                        { sesion_id: sesion.sesion_id },
+                        { $set: { activo: true, ts_ultima_actividad: new Date().toISOString() } }
+                    );
+                    
+                    sesion.activo = true; // Actualizar objeto local
+                }
+            }
+            
+            if (!sesion) {
+                console.log('❌ Sesión no encontrada - sesion_id:', decoded.sesion_id);
                 return { valid: false, error: 'session_invalid', mensaje: 'Sesión inválida o expirada.' };
             }
             
@@ -304,6 +458,9 @@ class AuthService {
         try {
             const db = getDB();
             const tiempoLimite = new Date(Date.now() - INACTIVITY_TIMEOUT).toISOString();
+            
+            console.log(`🧽 Limpieza de sesiones - INACTIVITY_TIMEOUT: ${INACTIVITY_TIMEOUT}ms (${INACTIVITY_TIMEOUT / 1000 / 60 / 60} horas)`);
+            console.log(`🧽 Desactivando sesiones con última actividad anterior a: ${tiempoLimite}`);
             
             const result = await db.collection('sesiones').updateMany(
                 { 
