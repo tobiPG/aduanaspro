@@ -7,8 +7,8 @@ const { validarUsuario, validarSesion, generarId } = require('../models/schemas'
 const JWT_SECRET = process.env.JWT_SECRET || 'clasificador-arancelario-secret-key-2025';
 const JWT_EXPIRES_IN = '24h';
 
-// Tiempo de inactividad para logout automático (24 horas - aumentado de 30 min)
-const INACTIVITY_TIMEOUT = 24 * 60 * 60 * 1000; // 24 horas en millisegundos
+// Tiempo de inactividad para logout automático (2 horas)
+const INACTIVITY_TIMEOUT = 2 * 60 * 60 * 1000; // 2 horas en millisegundos
 
 class AuthService {
     
@@ -359,6 +359,8 @@ class AuthService {
             // Decodificar token
             const decoded = jwt.verify(token, JWT_SECRET);
             
+            console.log('🔍 Verificando token - device_fingerprint del token:', decoded.device_fingerprint);
+            
             const db = getDB();
             
             // Buscar la sesión (primero con activo: true)
@@ -370,6 +372,8 @@ class AuthService {
                 activo: true
             });
             
+            console.log('📊 Sesión encontrada con activo:true?', !!sesion);
+            
             // Si no se encuentra con activo: true, buscar sin ese filtro
             if (!sesion) {
                 sesion = await db.collection('sesiones').findOne({
@@ -378,6 +382,8 @@ class AuthService {
                     empresa_id: decoded.empresa_id,
                     device_fingerprint: decoded.device_fingerprint
                 });
+                
+                console.log('📊 Sesión encontrada sin filtro activo?', !!sesion);
                 
                 if (sesion && !sesion.activo) {
                     // La sesión existe pero está inactiva - REACTIVARLA
@@ -393,7 +399,7 @@ class AuthService {
             }
             
             if (!sesion) {
-                console.log('❌ Sesión no encontrada - sesion_id:', decoded.sesion_id);
+                // Sesión no existe - token puede ser de sesión ya cerrada o limpiada
                 return { valid: false, error: 'session_invalid', mensaje: 'Sesión inválida o expirada.' };
             }
             

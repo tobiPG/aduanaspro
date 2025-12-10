@@ -9,7 +9,7 @@ class CleanupService {
     static initializeScheduledTasks() {
         console.log('🕒 Inicializando tareas programadas...');
         
-        // Limpiar sesiones inactivas cada 15 minutos
+        // Limpiar sesiones inactivas cada 5 minutos
         this.scheduleSessionCleanup();
         
         // Reset mensual de tokens cada día a las 2:00 AM
@@ -21,22 +21,36 @@ class CleanupService {
         console.log('✅ Tareas programadas iniciadas');
     }
     
-    // Limpiar sesiones inactivas cada 15 minutos
+    // Limpiar sesiones inactivas cada 5 minutos
     static scheduleSessionCleanup() {
-        cron.schedule('*/15 * * * *', async () => {
+        // Ejecutar limpieza inmediatamente al iniciar
+        setTimeout(async () => {
             try {
-                console.log('🧽 Ejecutando limpieza de sesiones inactivas...');
+                console.log('🧽 Ejecutando limpieza inicial de sesiones...');
+                const cleaned = await AuthService.limpiarSesionesInactivas();
+                if (cleaned > 0) {
+                    console.log(`✅ ${cleaned} sesiones inactivas limpiadas en inicio`);
+                }
+            } catch (error) {
+                console.error('❌ Error en limpieza inicial:', error);
+            }
+        }, 5000); // 5 segundos después de iniciar
+        
+        // Luego ejecutar cada 5 minutos
+        cron.schedule('*/5 * * * *', async () => {
+            try {
+                console.log('🧽 Ejecutando limpieza automática de sesiones...');
                 const cleaned = await AuthService.limpiarSesionesInactivas();
                 
                 if (cleaned > 0) {
-                    console.log(`✅ ${cleaned} sesiones inactivas limpiadas`);
+                    console.log(`✅ ${cleaned} sesiones inactivas limpiadas automáticamente`);
                 }
             } catch (error) {
-                console.error('❌ Error en limpieza de sesiones:', error);
+                console.error('❌ Error en limpieza automática:', error);
             }
         });
         
-        console.log('📅 Programada limpieza de sesiones cada 15 minutos');
+        console.log('📅 Programada limpieza de sesiones cada 5 minutos');
     }
     
     // Reset mensual de tokens cada día a las 2:00 AM

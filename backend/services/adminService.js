@@ -665,6 +665,143 @@ class AdminService {
             return { success: false, error: 'server_error' };
         }
     }
+    
+    // ==================== GESTIÓN DE SESIONES ====================
+    
+    /**
+     * Cerrar todas las sesiones activas del sistema (excepto la del admin)
+     */
+    static async cerrarTodasLasSesiones(sesionAdminId) {
+        try {
+            const db = getDB();
+            
+            // Contar sesiones antes de cerrar
+            const sesionesAntes = await db.collection('sesiones').countDocuments({ activo: true });
+            
+            // Cerrar todas las sesiones excepto la del admin
+            const resultado = await db.collection('sesiones').updateMany(
+                { 
+                    activo: true,
+                    sesion_id: { $ne: sesionAdminId }
+                },
+                { 
+                    $set: { 
+                        activo: false,
+                        cerrada_por: 'admin',
+                        fecha_cierre: new Date().toISOString()
+                    } 
+                }
+            );
+            
+            console.log(`🔒 Admin cerró ${resultado.modifiedCount} sesiones de ${sesionesAntes} activas`);
+            
+            return {
+                success: true,
+                sesiones_cerradas: resultado.modifiedCount,
+                sesiones_antes: sesionesAntes,
+                mensaje: `Se cerraron ${resultado.modifiedCount} sesiones exitosamente.`
+            };
+            
+        } catch (error) {
+            console.error('Error cerrando todas las sesiones:', error);
+            return { success: false, error: 'server_error', mensaje: 'Error al cerrar sesiones.' };
+        }
+    }
+    
+    /**
+     * Obtener lista de todas las sesiones activas
+     */
+    static async obtenerSesionesActivas() {
+        try {
+            const db = getDB();
+            
+            const sesiones = await db.collection('sesiones').aggregate([
+                {
+                    $match: { activo: true }
+                },
+                {
+                    $lookup: {
+                        from: 'usuarios',
+                        localField: 'usuario_id',
+                        foreignField: 'usuario_id',
+                        as: 'usuario'
+                    }
+                },
+                {
+                    $lookup: {
+                        from: 'empresas',
+                        localField: 'empresa_id',
+                        foreignField: 'empresa_id',
+                        as: 'empresa'
+                    }
+                },
+                {
+                    $unwind: '$usuario'
+                },
+                {
+                    $unwind: '$empresa'
+                },
+                {
+                    $project: {
+                        sesion_id: 1,
+                        usuario_nombre: '$usuario.nombre',
+                        usuario_correo: '$usuario.correo',
+                        empresa_nombre: '$empresa.nombre',
+                        device_fingerprint: 1,
+                        ip: 1,
+                        ts_login: 1,
+                        ts_ultima_actividad: 1
+                    }
+                },
+                {
+                    $sort: { ts_ultima_actividad: -1 }
+                }
+            ]).toArray();
+            
+            return {
+                success: true,
+                sesiones,
+                total: sesiones.length
+            };
+            
+        } catch (error) {
+            console.error('Error obteniendo sesiones activas:', error);
+            return { success: false, error: 'server_error', mensaje: 'Error al obtener sesiones.' };
+        }
+    }
+    
+    /**
+     * Cerrar una sesión específica
+     */
+    static async cerrarSesion(sesionId) {
+        try {
+            const db = getDB();
+            
+            const resultado = await db.collection('sesiones').updateOne(
+                { sesion_id: sesionId },
+                { 
+                    $set: { 
+                        activo: false,
+                        cerrada_por: 'admin',
+                        fecha_cierre: new Date().toISOString()
+                    } 
+                }
+            );
+            
+            if (resultado.matchedCount === 0) {
+                return { success: false, error: 'session_not_found', mensaje: 'Sesión no encontrada.' };
+            }
+            
+            return {
+                success: true,
+                mensaje: 'Sesión cerrada exitosamente.'
+            };
+            
+        } catch (error) {
+            console.error('Error cerrando sesión:', error);
+            return { success: false, error: 'server_error', mensaje: 'Error al cerrar sesión.' };
+        }
+    }
 }
 
 module.exports = AdminService;

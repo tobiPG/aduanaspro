@@ -9,6 +9,7 @@ const OpenAI = require('openai');
 const { generarXmlImportDUA } = require('./utils/xmlGenerator');
 const { connectDB } = require('./config/database');
 const { verificarAuthOpcional } = require('./middleware/auth');
+const CleanupService = require('./services/cleanupService');
 
 const app = express();
 const PORT = process.env.PORT || 3050;
@@ -1442,6 +1443,9 @@ async function startServer() {
   try {
     // Conectar a MongoDB
     await connectDB();
+    
+    // Inicializar tareas programadas de limpieza
+    CleanupService.initializeScheduledTasks();
     
     // Iniciar servidor HTTP
     app.listen(PORT, '127.0.0.1', () => {

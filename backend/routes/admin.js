@@ -496,4 +496,79 @@ router.get('/historial/:clasificacionId', verificarAuthYAdmin, async (req, res) 
     }
 });
 
+// ==================== GESTIÓN DE SESIONES ====================
+
+/**
+ * POST /api/admin/sesiones/limpiar-todas
+ * Cerrar todas las sesiones activas del sistema (excepto la del admin)
+ */
+router.post('/sesiones/limpiar-todas', verificarAuthYAdmin, async (req, res) => {
+    try {
+        const resultado = await AdminService.cerrarTodasLasSesiones(req.auth.sesion_id);
+        
+        if (resultado.success) {
+            res.json(resultado);
+        } else {
+            res.status(500).json(resultado);
+        }
+        
+    } catch (error) {
+        console.error('Error en POST /api/admin/sesiones/limpiar-todas:', error);
+        res.status(500).json({
+            success: false,
+            error: 'server_error',
+            mensaje: 'Error interno del servidor.'
+        });
+    }
+});
+
+/**
+ * GET /api/admin/sesiones/activas
+ * Obtener lista de todas las sesiones activas
+ */
+router.get('/sesiones/activas', verificarAuthYAdmin, async (req, res) => {
+    try {
+        const resultado = await AdminService.obtenerSesionesActivas();
+        
+        if (resultado.success) {
+            res.json(resultado);
+        } else {
+            res.status(500).json(resultado);
+        }
+        
+    } catch (error) {
+        console.error('Error en GET /api/admin/sesiones/activas:', error);
+        res.status(500).json({
+            success: false,
+            error: 'server_error',
+            mensaje: 'Error interno del servidor.'
+        });
+    }
+});
+
+/**
+ * DELETE /api/admin/sesiones/:sesionId
+ * Cerrar una sesión específica
+ */
+router.delete('/sesiones/:sesionId', verificarAuthYAdmin, async (req, res) => {
+    try {
+        const { sesionId } = req.params;
+        const resultado = await AdminService.cerrarSesion(sesionId);
+        
+        if (resultado.success) {
+            res.json(resultado);
+        } else {
+            res.status(404).json(resultado);
+        }
+        
+    } catch (error) {
+        console.error('Error en DELETE /api/admin/sesiones/:sesionId:', error);
+        res.status(500).json({
+            success: false,
+            error: 'server_error',
+            mensaje: 'Error interno del servidor.'
+        });
+    }
+});
+
 module.exports = router;
