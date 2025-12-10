@@ -880,8 +880,20 @@ app.post('/clasificar', verificarAuthOpcional, async (req, res) => {
     
     // Usar Responses API con tu prompt guardado
     const respuesta = await clasificarTextoConResponsesAPI(producto, solo_hs, operationType);
-    const resultado = respuesta.data;
+    let resultado = respuesta.data;
     const usage = respuesta.usage;
+    
+    // Obtener y aplicar defaults de la empresa si está autenticado
+    if (req.auth?.empresa_id) {
+      const ConfigService = require('./services/configService');
+      const defaultsInfo = await ConfigService.obtenerDefaults(req.auth.empresa_id);
+      
+      if (defaultsInfo.success && Object.keys(defaultsInfo.defaults).length > 0) {
+        console.log('🔧 Aplicando defaults de la empresa:', defaultsInfo.defaults);
+        resultado = ConfigService.aplicarDefaults(resultado, defaultsInfo.defaults);
+        console.log('✅ Defaults aplicados correctamente');
+      }
+    }
     
     // Actualizar tokens consumidos y guardar en historial si hay autenticación
     if (req.auth?.empresa_id && req.auth?.usuario_id) {
