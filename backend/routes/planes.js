@@ -9,8 +9,10 @@ router.get('/listar', async (req, res) => {
     try {
         const db = getDB();
         
-        // Obtener todos los planes activos
-        const planes = await db.collection('planes').find({ activo: true }).toArray();
+        // Obtener todos los planes (activos o sin campo activo definido)
+        const planes = await db.collection('planes').find({ 
+            $or: [{ activo: true }, { activo: { $exists: false } }]
+        }).toArray();
         
         res.status(200).json({
             success: true,

@@ -8,27 +8,39 @@ const seedData = {
     planes: [
         {
             id: "Starter",
+            nombre: "Plan Starter",
             tokens_mes: 100000,
             precio_mensual_usd: 10,
-            dispositivos_concurrentes: 1
+            dispositivos_concurrentes: 1,
+            descripcion: "Ideal para comenzar",
+            activo: true
         },
         {
             id: "Pro", 
+            nombre: "Plan Pro",
             tokens_mes: 1000000,
             precio_mensual_usd: 45,
-            dispositivos_concurrentes: 2
+            dispositivos_concurrentes: 2,
+            descripcion: "Para profesionales",
+            activo: true
         },
         {
             id: "Business",
+            nombre: "Plan Business",
             tokens_mes: 5000000,
             precio_mensual_usd: 215,
-            dispositivos_concurrentes: 5
+            dispositivos_concurrentes: 5,
+            descripcion: "Para empresas en crecimiento",
+            activo: true
         },
         {
             id: "Enterprise",
+            nombre: "Plan Enterprise",
             tokens_mes: 20000000,
             precio_mensual_usd: 860,
-            dispositivos_concurrentes: 10
+            dispositivos_concurrentes: 10,
+            descripcion: "Para grandes corporaciones",
+            activo: true
         }
     ],
     
