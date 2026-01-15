@@ -1048,7 +1048,18 @@ details[open] .json-toggle i {
     transition: all 0.3s;
 }
 
-.defaults-form input:focus {
+.defaults-form select {
+    padding: 0.75rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 1rem;
+    transition: all 0.3s;
+    background-color: white;
+    cursor: pointer;
+}
+
+.defaults-form input:focus,
+.defaults-form select:focus {
     outline: none;
     border-color: var(--primary-color);
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
@@ -2005,6 +2016,105 @@ details[open] .json-toggle i {
     color: var(--warning-color);
     font-weight: 600;
     font-size: 0.875rem;
+}
+
+/* Estilos para historial de clasificaciones en gestionar plan */
+.history-content h4 {
+    margin-bottom: 1rem;
+    color: var(--text-primary);
+    font-size: 1.1rem;
+}
+
+.history-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    transition: background 0.2s;
+}
+
+.history-item:hover {
+    background: rgba(37, 99, 235, 0.05);
+}
+
+.history-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.history-fraccion {
+    font-weight: 600;
+    color: var(--primary-color);
+    font-family: monospace;
+    font-size: 0.9rem;
+}
+
+.history-details {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    font-size: 0.85rem;
+}
+
+.history-type {
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    font-weight: 500;
+}
+
+.history-type.tipo-texto {
+    background: rgba(37, 99, 235, 0.1);
+    color: var(--primary-color);
+}
+
+.history-type.tipo-archivo {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--success-color);
+}
+
+.history-type.tipo-batch {
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--warning-color);
+}
+
+.history-desc {
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+    flex: 1;
+}
+
+.history-details .history-tokens {
+    color: var(--warning-color);
+    font-weight: 600;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    margin-left: auto;
+}
+
+.no-history {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 1rem;
+    font-style: italic;
+}
+
+.error-message {
+    text-align: center;
+    color: var(--error-color);
+    padding: 1rem;
+}
+
+.loading-spinner {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 1rem;
 }
 
 .plan-recommendation {

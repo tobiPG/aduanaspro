@@ -1273,43 +1273,165 @@
                     <!-- Formulario de configuración -->
                     <div class="config-form-container">
                         <form id="defaults-form" class="defaults-form">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="default-clearance-type">
-                                        <i class="fas fa-file-invoice"></i>
-                                        Tipo de Despacho (ClearanceType)
-                                    </label>
-                                    <input type="text" id="default-clearance-type" placeholder="Ej: IC01-001" pattern="IC\d{2}-\d{3}">
-                                    <small>Formato: IC##-### (Ej: IC01-001)</small>
-                                </div>
+                            <!-- Información General -->
+                            <div class="form-section">
+                                <h4><i class="fas fa-info-circle"></i> Información General</h4>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="default-clearance-type">
+                                            <i class="fas fa-file-invoice"></i>
+                                            Tipo de Despacho (ClearanceType)
+                                        </label>
+                                        <input type="text" id="default-clearance-type" placeholder="Ej: IC38-002" pattern="IC\d{2}-\d{3}">
+                                        <small>Formato: IC##-### (Ej: IC38-002)</small>
+                                    </div>
 
-                                <div class="form-group">
-                                    <label for="default-regimen-code">
-                                        <i class="fas fa-list-ol"></i>
-                                        Código de Régimen (RegimenCode)
-                                    </label>
-                                    <input type="text" id="default-regimen-code" placeholder="Ej: 10" pattern="\d+">
-                                    <small>Solo números (Ej: 10, 40)</small>
+                                    <div class="form-group">
+                                        <label for="default-regimen-code">
+                                            <i class="fas fa-list-ol"></i>
+                                            Código de Régimen (RegimenCode)
+                                        </label>
+                                        <input type="text" id="default-regimen-code" placeholder="Ej: 1" pattern="\d+">
+                                        <small>Solo números (Ej: 1, 10, 40)</small>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="default-area-code">
+                                            <i class="fas fa-map-marker-alt"></i>
+                                            Código de Área (AreaCode)
+                                        </label>
+                                        <input type="text" id="default-area-code" placeholder="Ej: 10150">
+                                        <small>Código de la aduana (Ej: 10150 - Santo Domingo)</small>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="default-importer-code">
-                                        <i class="fas fa-building"></i>
-                                        Código de Importador (ImporterCode)
-                                    </label>
-                                    <input type="text" id="default-importer-code" placeholder="Ej: RNC123456789" pattern="RNC\d+">
-                                    <small>Formato: RNC seguido de números</small>
-                                </div>
+                            <!-- Información del Importador -->
+                            <div class="form-section">
+                                <h4><i class="fas fa-building"></i> Información del Importador</h4>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="default-importer-code">
+                                            RNC del Importador (ImporterCode)
+                                        </label>
+                                        <input type="text" id="default-importer-code" placeholder="Ej: RNC123456789" pattern="RNC\d+">
+                                        <small>Formato: RNC seguido de números</small>
+                                    </div>
 
-                                <div class="form-group">
-                                    <label for="default-declarant-code">
-                                        <i class="fas fa-user-tie"></i>
-                                        Código de Declarante (DeclarantCode)
-                                    </label>
-                                    <input type="text" id="default-declarant-code" placeholder="Ej: RNC987654321" pattern="RNC\d+">
-                                    <small>Formato: RNC seguido de números</small>
+                                    <div class="form-group">
+                                        <label for="default-importer-name">
+                                            Nombre del Importador (ImporterName)
+                                        </label>
+                                        <input type="text" id="default-importer-name" placeholder="Ej: Empresa Importadora SA">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Información del Declarante -->
+                            <div class="form-section">
+                                <h4><i class="fas fa-user-tie"></i> Información del Declarante</h4>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="default-declarant-code">
+                                            RNC del Declarante (DeclarantCode)
+                                        </label>
+                                        <input type="text" id="default-declarant-code" placeholder="Ej: RNC987654321" pattern="RNC\d+">
+                                        <small>Formato: RNC seguido de números</small>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="default-declarant-name">
+                                            Nombre del Declarante (DeclarantName)
+                                        </label>
+                                        <input type="text" id="default-declarant-name" placeholder="Ej: Agente Aduanal SA">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Información de Transporte -->
+                            <div class="form-section">
+                                <h4><i class="fas fa-shipping-fast"></i> Información de Transporte</h4>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="default-transport-mode">
+                                            Modo de Transporte (TransportMode)
+                                        </label>
+                                        <select id="default-transport-mode">
+                                            <option value="">Seleccionar...</option>
+                                            <option value="1">1 - Marítimo</option>
+                                            <option value="2">2 - Ferroviario</option>
+                                            <option value="3">3 - Carretera</option>
+                                            <option value="4">4 - Aéreo</option>
+                                            <option value="5">5 - Postal</option>
+                                            <option value="7">7 - Instalaciones fijas</option>
+                                            <option value="8">8 - Navegación interior</option>
+                                            <option value="9">9 - Propio medio</option>
+                                        </select>
+                                        <small>Modo de transporte principal</small>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="default-country-dispatch">
+                                            País de Expedición (CountryDispatch)
+                                        </label>
+                                        <input type="text" id="default-country-dispatch" placeholder="Ej: US" maxlength="2">
+                                        <small>Código ISO de 2 letras (Ej: US, CN, DE)</small>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="default-country-origin">
+                                            País de Origen (CountryOrigin)
+                                        </label>
+                                        <input type="text" id="default-country-origin" placeholder="Ej: CN" maxlength="2">
+                                        <small>Código ISO de 2 letras</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Información Financiera -->
+                            <div class="form-section">
+                                <h4><i class="fas fa-dollar-sign"></i> Información Financiera</h4>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="default-payment-method">
+                                            Método de Pago (PaymentMethod)
+                                        </label>
+                                        <select id="default-payment-method">
+                                            <option value="">Seleccionar...</option>
+                                            <option value="A">A - Efectivo</option>
+                                            <option value="B">B - Cheque</option>
+                                            <option value="C">C - Transferencia</option>
+                                            <option value="D">D - Crédito</option>
+                                            <option value="H">H - Tarjeta de crédito</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="default-incoterm">
+                                            Incoterm
+                                        </label>
+                                        <select id="default-incoterm">
+                                            <option value="">Seleccionar...</option>
+                                            <option value="FOB">FOB - Free On Board</option>
+                                            <option value="CFR">CFR - Cost and Freight</option>
+                                            <option value="CIF">CIF - Cost Insurance Freight</option>
+                                            <option value="EXW">EXW - Ex Works</option>
+                                            <option value="FCA">FCA - Free Carrier</option>
+                                            <option value="CPT">CPT - Carriage Paid To</option>
+                                            <option value="CIP">CIP - Carriage Insurance Paid</option>
+                                            <option value="DAP">DAP - Delivered At Place</option>
+                                            <option value="DPU">DPU - Delivered at Place Unloaded</option>
+                                            <option value="DDP">DDP - Delivered Duty Paid</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="default-currency">
+                                            Moneda (Currency)
+                                        </label>
+                                        <input type="text" id="default-currency" placeholder="Ej: USD" maxlength="3" value="USD">
+                                        <small>Código ISO de 3 letras (Ej: USD, EUR)</small>
+                                    </div>
                                 </div>
                             </div>
 
@@ -1638,5 +1760,6 @@
 
     <!-- <script src="auth.js"></script> -->
     <script src="script.js"></script>
+    <script src="products-manager.js"></script>
 </body>
 </html>

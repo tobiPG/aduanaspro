@@ -9,6 +9,29 @@ let currentEditingIndex = null; // Índice del producto que se está editando
 let authToken = localStorage.getItem('authToken'); // Token de autenticación
 let userInfo = null; // Información del usuario logueado
 
+// Función helper para fetch con manejo automático de errores de autenticación
+async function fetchConAuth(url, options = {}) {
+    try {
+        const response = await fetch(url, options);
+        
+        // Si recibimos 401 Unauthorized, limpiar sesión automáticamente
+        if (response.status === 401) {
+            console.log('🔒 Sesión expirada (401) - limpiando automáticamente');
+            limpiarSesionSilenciosamente();
+            
+            // Lanzar error para que el código que llama pueda manejarlo
+            const error = new Error('Sesión expirada');
+            error.status = 401;
+            throw error;
+        }
+        
+        return response;
+    } catch (error) {
+        // Si es error de red o el error que lanzamos, propagar
+        throw error;
+    }
+}
+
 // Función auxiliar para mostrar notificaciones
 function showNotification(message, type = 'info') {
     // Buscar contenedor existente o crear uno nuevo
@@ -413,21 +436,37 @@ window.cancelarEdicionDirecta = function(fieldKey, buttonElement) {
     }
 };
 
-// Generar device fingerprint
+// Generar device fingerprint (debe ser persistente entre recargas)
 function getDeviceFingerprint() {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    ctx.textBaseline = 'top';
-    ctx.font = '14px Arial';
-    ctx.fillText('Device fingerprint', 2, 2);
-
-    const fingerprint = canvas.toDataURL() +
-        navigator.userAgent +
-        navigator.language +
-        screen.width + 'x' + screen.height +
-        new Date().getTimezoneOffset();
-
-    return btoa(fingerprint).slice(0, 32);
+    // Usar localStorage para mantener el mismo fingerprint
+    let fingerprint = localStorage.getItem('deviceFingerprint');
+    
+    if (!fingerprint) {
+        const nav = navigator;
+        const screen = window.screen;
+        
+        const components = [
+            nav.userAgent,
+            nav.language,
+            screen.colorDepth,
+            screen.width + 'x' + screen.height,
+            new Date().getTimezoneOffset()
+        ];
+        
+        // Crear un hash consistente (sin timestamp)
+        const str = components.join('|');
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash;
+        }
+        
+        fingerprint = 'fp_' + Math.abs(hash).toString(36);
+        localStorage.setItem('deviceFingerprint', fingerprint);
+    }
+    
+    return fingerprint;
 }
 
 function escapeHtml(str) {
@@ -586,7 +625,7 @@ async function cargarHistorial() {
     try {
         console.log('📡 Cargando historial...');
         
-        const response = await fetch(`${API_BASE_URL}/api/historial?limite=50`, {
+        const response = await fetchConAuth(`${API_BASE_URL}/api/historial?limite=50`, {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${authToken}`,
@@ -595,12 +634,7 @@ async function cargarHistorial() {
         });
         
         if (!response.ok) {
-            if (response.status === 401) {
-                // Token inválido, pedir re-login
-                historialLista.innerHTML = '<div style="text-align: center; padding: 40px;"><p style="color: #dc2626;">Tu sesión ha expirado.</p><button onclick="location.reload()" class="btn-primary">Iniciar sesión nuevamente</button></div>';
-                limpiarSesion();
-                return;
-            }
+            // Los errores 401 ya son manejados por fetchConAuth
             throw new Error('Error al cargar historial');
         }
         
@@ -693,33 +727,108 @@ async function verDetalleClasificacion(clasificacionId) {
         }
         
         const clf = data.clasificacion;
+        console.log('📋 Estructura de clasificación:', JSON.stringify(clf, null, 2));
         
         // Guardar resultado en variable global para edición y exportación
-        resultadoActual = clf.resultado;
+        // Buscar productos en todas las posibles ubicaciones
+        let productosEncontrados = [];
+        
+        // Intentar obtener productos de varias fuentes
+        if (clf.resultado?.ImpDeclarationProduct?.length > 0) {
+            productosEncontrados = clf.resultado.ImpDeclarationProduct;
+            console.log('✅ Productos encontrados en clf.resultado.ImpDeclarationProduct');
+        } else if (clf.resultado?.productos?.length > 0) {
+            productosEncontrados = clf.resultado.productos;
+            console.log('✅ Productos encontrados en clf.resultado.productos');
+        } else if (clf.productos?.length > 0) {
+            productosEncontrados = clf.productos;
+            console.log('✅ Productos encontrados en clf.productos');
+        } else if (Array.isArray(clf.resultado) && clf.resultado.length > 0) {
+            productosEncontrados = clf.resultado;
+            console.log('✅ Productos encontrados: clf.resultado es un array');
+        }
+        
+        console.log('📦 Productos encontrados:', productosEncontrados.length);
+        
+        // Construir resultadoActual con estructura correcta
+        if (clf.resultado && typeof clf.resultado === 'object' && !Array.isArray(clf.resultado)) {
+            resultadoActual = {
+                ...clf.resultado,
+                ImpDeclarationProduct: productosEncontrados
+            };
+        } else {
+            resultadoActual = {
+                ImpDeclarationProduct: productosEncontrados,
+                productos: productosEncontrados,
+                tipo_operacion: clf.tipo_operacion,
+                fecha_creacion: clf.fecha_creacion,
+                nombre_archivo: clf.nombre_archivo
+            };
+        }
+        
         clasificacionIdActual = clasificacionId;
+        console.log('📦 resultadoActual final:', resultadoActual);
         
         // Crear modal para mostrar detalles
         const fecha = new Date(clf.fecha_creacion).toLocaleString('es-ES');
         const tipo = clf.tipo_operacion === 'import' ? 'Importación' : 'Exportación';
         const tokens = clf.tokens_consumidos ? clf.tokens_consumidos.toLocaleString() : 'N/A';
         
-        // Generar HTML para productos con más detalles
+        // Generar HTML para productos con TODOS los detalles disponibles
         let productosHTML = '';
-        if (clf.productos && clf.productos.length > 0) {
-            productosHTML = clf.productos.map((prod, idx) => `
-                <div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; margin-bottom: 12px; background: #f9fafb;">
-                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
-                        <h4 style="margin: 0; color: #1f2937; font-size: 16px;">Producto ${idx + 1}</h4>
-                        <span style="background: #3b82f6; color: white; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">
-                            ${prod.HSCode || 'N/A'}
+        
+        // Usar productos del resultado completo si están disponibles
+        const productosData = clf.resultado?.ImpDeclarationProduct || clf.productos || [];
+        
+        if (productosData && productosData.length > 0) {
+            productosHTML = productosData.map((prod, idx) => {
+                // Extraer todos los campos del producto
+                const campos = [];
+                const camposExcluidos = ['_index', '_isManual'];
+                
+                // Mapeo de etiquetas
+                const etiquetas = {
+                    'HSCode': 'Código HS', 'ProductName': 'Nombre', 'descripcion_comercial': 'Descripción',
+                    'Qty': 'Cantidad', 'FOBValue': 'Valor FOB', 'NetWeight': 'Peso Neto',
+                    'OriginCountryCode': 'Origen', 'Brand': 'Marca', 'Model': 'Modelo',
+                    'UnitMeasure': 'Unidad', 'DAI': 'DAI %', 'ITBIS': 'ITBIS %'
+                };
+                
+                for (const [key, value] of Object.entries(prod)) {
+                    if (value && !camposExcluidos.includes(key) && typeof value !== 'object') {
+                        campos.push({
+                            label: etiquetas[key] || key.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim(),
+                            value: value
+                        });
+                    }
+                }
+                
+                const hsCode = prod.HSCode || prod.hs || 'N/A';
+                const nombre = prod.ProductName || prod.descripcion_comercial || prod.item_name || `Producto ${idx + 1}`;
+                
+                return `
+                <div style="border: 2px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 12px; background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); transition: all 0.3s;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 2px solid #e2e8f0;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px;">${idx + 1}</span>
+                            <h4 style="margin: 0; color: #1f2937; font-size: 15px; font-weight: 600;">${escapeHtml(nombre).substring(0, 50)}${nombre.length > 50 ? '...' : ''}</h4>
+                        </div>
+                        <span style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: white; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700; letter-spacing: 0.5px;">
+                            ${hsCode}
                         </span>
                     </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 14px;">
-                        <p style="margin: 4px 0;"><strong>Nombre:</strong> ${prod.ProductName || 'N/A'}</p>
-                        <p style="margin: 4px 0;"><strong>Código:</strong> ${prod.ProductCode || 'N/A'}</p>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; font-size: 13px;">
+                        ${campos.slice(0, 8).map(c => `
+                            <div style="background: white; padding: 8px 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                <div style="font-size: 10px; color: #64748b; text-transform: uppercase; font-weight: 600; margin-bottom: 2px;">${escapeHtml(c.label)}</div>
+                                <div style="color: #1e293b; font-weight: 500;">${escapeHtml(String(c.value))}</div>
+                            </div>
+                        `).join('')}
                     </div>
+                    ${campos.length > 8 ? `<p style="margin: 10px 0 0 0; font-size: 12px; color: #64748b; text-align: center;">+ ${campos.length - 8} campos más... (Click en Editar para ver todos)</p>` : ''}
                 </div>
-            `).join('');
+            `;
+            }).join('');
         } else {
             productosHTML = '<p style="color: #666; text-align: center; padding: 20px;">No hay productos clasificados</p>';
         }
@@ -832,24 +941,100 @@ function cerrarModalDetalle() {
 }
 
 // Función para editar resultado desde historial
-function editarResultadoHistorial(clasificacionId) {
-    if (!resultadoActual) {
-        showNotification('No hay resultado para editar', 'error');
-        return;
+async function editarResultadoHistorial(clasificacionId) {
+    console.log('✏️ Editando resultado de clasificación:', clasificacionId);
+    console.log('📦 resultadoActual antes de editar:', resultadoActual);
+    
+    // Si resultadoActual está vacío o sin productos, recargar desde servidor
+    const tieneProductos = resultadoActual && 
+        (resultadoActual.ImpDeclarationProduct?.length > 0 || 
+         resultadoActual.productos?.length > 0 ||
+         (Array.isArray(resultadoActual) && resultadoActual.length > 0));
+    
+    if (!tieneProductos) {
+        console.log('⚠️ resultadoActual vacío, recargando desde servidor...');
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/historial/${clasificacionId}`, {
+                headers: {
+                    'Authorization': `Bearer ${authToken}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success && data.clasificacion) {
+                    const clf = data.clasificacion;
+                    
+                    // Buscar productos en todas las ubicaciones posibles
+                    let productos = [];
+                    if (clf.resultado?.ImpDeclarationProduct?.length > 0) {
+                        productos = clf.resultado.ImpDeclarationProduct;
+                    } else if (clf.resultado?.productos?.length > 0) {
+                        productos = clf.resultado.productos;
+                    } else if (clf.productos?.length > 0) {
+                        productos = clf.productos;
+                    } else if (Array.isArray(clf.resultado)) {
+                        productos = clf.resultado;
+                    }
+                    
+                    resultadoActual = {
+                        ImpDeclarationProduct: productos,
+                        productos: productos,
+                        tipo_operacion: clf.tipo_operacion,
+                        nombre_archivo: clf.nombre_archivo
+                    };
+                    
+                    console.log('✅ Datos recargados desde servidor:', resultadoActual);
+                }
+            }
+        } catch (error) {
+            console.error('❌ Error recargando datos:', error);
+        }
     }
     
-    console.log('✏️ Editando resultado de clasificación:', clasificacionId);
+    if (!resultadoActual || (!resultadoActual.ImpDeclarationProduct?.length && !resultadoActual.productos?.length)) {
+        // Aunque no haya productos, permitir edición si hay otros datos
+        if (resultadoActual && Object.keys(resultadoActual).length > 2) {
+            console.log('⚠️ Sin productos pero con datos de declaración, permitiendo edición');
+            // Asegurar que tenga arrays vacíos para que funcione el sistema
+            resultadoActual.ImpDeclarationProduct = resultadoActual.ImpDeclarationProduct || [];
+            resultadoActual.productos = resultadoActual.productos || [];
+        } else {
+            showNotification('No hay productos para editar en esta clasificación', 'error');
+            return;
+        }
+    }
     
     // Cerrar modal de detalle
     cerrarModalDetalle();
     
-    // Mostrar resultado en la interfaz principal
-    showResults(resultadoActual, null);
+    // IMPORTANTE: Guardar copia del resultado antes de cambiar tab
+    // porque showTab llama a hideResults() que pone resultadoActual = null
+    const resultadoParaMostrar = JSON.parse(JSON.stringify(resultadoActual));
     
-    // Scroll a resultados
-    document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Cambiar a la pestaña de clasificación
+    showTab('clasificar');
     
-    showNotification('Resultado cargado para edición. Puedes modificar y exportar nuevamente.', 'success');
+    // Pequeño delay para asegurar que el DOM esté listo
+    setTimeout(() => {
+        // Restaurar y mostrar resultado con el nuevo formato moderno
+        resultadoActual = resultadoParaMostrar;
+        showResults(resultadoActual, null);
+        
+        // Scroll a resultados
+        const resultsDiv = document.getElementById('results');
+        if (resultsDiv) {
+            resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        
+        // Mensaje según si hay productos o no
+        if (resultadoActual.ImpDeclarationProduct?.length > 0 || resultadoActual.productos?.length > 0) {
+            showNotification('Resultado cargado para edición. Puedes modificar los campos y exportar nuevamente.', 'success');
+        } else {
+            showNotification('Esta clasificación no tiene productos. Puedes añadir productos manualmente usando el botón "Añadir Producto".', 'info');
+        }
+    }, 100);
 }
 
 // Función para descargar XML desde historial
@@ -980,7 +1165,11 @@ function showResults(data, tokensInfo = null) {
     contentDiv.innerHTML = '';
     
     // Agregar información de tokens si está disponible
-    if (tokensInfo) {
+    if (tokensInfo && (tokensInfo.input_tokens || tokensInfo.output_tokens || tokensInfo.total_tokens)) {
+        const inputTokens = tokensInfo.input_tokens || 0;
+        const outputTokens = tokensInfo.output_tokens || 0;
+        const totalTokens = tokensInfo.total_tokens || 0;
+        
         const tokensCard = document.createElement('div');
         tokensCard.className = 'tokens-info-card';
         tokensCard.innerHTML = `
@@ -991,35 +1180,74 @@ function showResults(data, tokensInfo = null) {
             <div class="tokens-details">
                 <div class="token-item">
                     <span class="token-label">Entrada:</span>
-                    <span class="token-value">${tokensInfo.input_tokens.toLocaleString()}</span>
+                    <span class="token-value">${inputTokens.toLocaleString()}</span>
                 </div>
                 <div class="token-item">
                     <span class="token-label">Salida:</span>
-                    <span class="token-value">${tokensInfo.output_tokens.toLocaleString()}</span>
+                    <span class="token-value">${outputTokens.toLocaleString()}</span>
                 </div>
                 <div class="token-item total">
                     <span class="token-label">Total:</span>
-                    <span class="token-value">${tokensInfo.total_tokens.toLocaleString()}</span>
+                    <span class="token-value">${totalTokens.toLocaleString()}</span>
                 </div>
             </div>
         `;
         contentDiv.appendChild(tokensCard);
     }
     
-    // Si es un array de resultados (múltiples productos)
-    if (Array.isArray(data)) {
-        data.forEach((item, index) => {
-            contentDiv.appendChild(createResultCard(item, index + 1));
-        });
+    // NUEVO: Usar el sistema moderno de visualización de productos
+    // Verificar primero que data no sea null
+    if (!data) {
+        console.error('❌ showResults llamado con data null');
+        contentDiv.innerHTML = '<p style="text-align: center; color: #dc2626; padding: 20px;">No hay datos para mostrar</p>';
+        resultsDiv.style.display = 'block';
+        return;
+    }
+    
+    // Verificar si hay productos en la estructura
+    const tieneProductos = (data.ImpDeclarationProduct && data.ImpDeclarationProduct.length > 0) || 
+                          (data.productos && data.productos.length > 0) || 
+                          (Array.isArray(data) && data.length > 0) ||
+                          data.HSCode || data.hs;
+    
+    // Usar el nuevo sistema de renderizado si existe la función
+    if (typeof renderizarProductos === 'function') {
+        // Asegurar que data tenga arrays de productos (aunque estén vacíos)
+        if (!data.ImpDeclarationProduct) data.ImpDeclarationProduct = [];
+        if (!data.productos) data.productos = [];
+        
+        // Usar el nuevo sistema de renderizado moderno
+        renderizarProductos(data);
+        
+        // Si no hay productos, mostrar mensaje informativo
+        if (!tieneProductos) {
+            const grid = document.getElementById('products-grid');
+            if (grid) {
+                const msgDiv = document.createElement('div');
+                msgDiv.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 30px; background: #fef3c7; border-radius: 12px; border: 2px dashed #f59e0b; margin-bottom: 10px;';
+                msgDiv.innerHTML = `
+                    <i class="fas fa-exclamation-triangle" style="font-size: 40px; color: #f59e0b; margin-bottom: 15px; display: block;"></i>
+                    <h4 style="margin: 0 0 10px 0; color: #92400e;">Esta clasificación no tiene productos</h4>
+                    <p style="margin: 0; color: #78350f;">La clasificación original falló o no generó productos.<br>Puedes añadir productos manualmente usando el botón de abajo.</p>
+                `;
+                grid.insertBefore(msgDiv, grid.firstChild);
+            }
+        }
     } else {
-        // Resultado único
-        contentDiv.appendChild(createResultCard(data));
+        // Fallback al sistema anterior
+        if (Array.isArray(data)) {
+            data.forEach((item, index) => {
+                contentDiv.appendChild(createResultCard(item, index + 1));
+            });
+        } else {
+            contentDiv.appendChild(createResultCard(data));
+        }
+        
+        // Mostrar botones de acción del sistema antiguo
+        showActionButtons();
     }
     
     resultsDiv.style.display = 'block';
-    
-    // Mostrar botones de acción después de mostrar los resultados
-    showActionButtons();
     
     // Validar y mostrar panel de campos faltantes si es necesario
     setTimeout(() => {
@@ -1597,7 +1825,7 @@ async function clasificarTexto() {
             console.log('⚠️ Clasificando sin autenticación (no se guardará en historial)');
         }
         
-        const response = await fetch(`${API_BASE_URL}/clasificar`, {
+        const response = await fetchConAuth(`${API_BASE_URL}/clasificar`, {
             method: 'POST',
             mode: 'cors',
             cache: 'no-cache',
@@ -1618,14 +1846,8 @@ async function clasificarTexto() {
         console.log('Data:', JSON.stringify(result, null, 2));
         
         if (!response.ok) {
-            // Manejar errores de autenticación
-            if (response.status === 401) {
-                authToken = null;
-                localStorage.removeItem('authToken');
-                showError('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.');
-                showLoginModal();
-                return;
-            } else if (response.status === 403) {
+            // Los errores 401 ya son manejados por fetchConAuth
+            if (response.status === 403) {
                 // Verificar si es error de tokens agotados
                 if (result.error === 'no_tokens_available') {
                     const mensaje = result.mensaje || 'Has agotado tus tokens mensuales.';
@@ -1726,16 +1948,30 @@ function handleFileSelect(input) {
     document.getElementById('btn-clasificar-archivo').disabled = false;
 }
 
+// Variable para controlar si hay una clasificación batch en progreso
+let batchEnProgreso = false;
+
 async function clasificarArchivo() {
     if (!archivoSeleccionado) {
         showError('Por favor, selecciona un archivo primero.');
         return;
     }
     
+    // Si es un PDF, usar el nuevo sistema con detección de batch
+    if (archivoSeleccionado.type === 'application/pdf') {
+        await clasificarArchivoConBatch();
+        return;
+    }
+    
+    // Para otros archivos, usar el método tradicional
+    await clasificarArchivoTradicional();
+}
+
+// Clasificación tradicional (para archivos pequeños o no-PDF)
+async function clasificarArchivoTradicional() {
     const soloHS = document.getElementById('solo-hs-archivo').checked;
     
-    console.log('📤 Clasificando archivo:', archivoSeleccionado.name);
-    console.log('🔧 Modo solo_hs:', soloHS);
+    console.log('📤 Clasificando archivo (modo tradicional):', archivoSeleccionado.name);
     
     showLoading();
     
@@ -1747,12 +1983,9 @@ async function clasificarArchivo() {
         const headers = {};
         if (authToken) {
             headers['Authorization'] = `Bearer ${authToken}`;
-            console.log('🔑 Enviando clasificación de archivo con token de autenticación');
-        } else {
-            console.log('⚠️ Clasificando archivo sin autenticación (no se guardará en historial)');
         }
         
-        const response = await fetch(`${API_BASE_URL}/clasificar-archivo`, {
+        const response = await fetchConAuth(`${API_BASE_URL}/clasificar-archivo`, {
             method: 'POST',
             headers: headers,
             body: formData
@@ -1760,76 +1993,16 @@ async function clasificarArchivo() {
         
         const result = await response.json();
         
-        console.log('📡 RESPUESTA DE LA API (clasificar por archivo):');
-        console.log('Status:', response.status);
-        console.log('Data:', JSON.stringify(result, null, 2));
-        
         if (!response.ok) {
-            // Manejar errores de autenticación
-            if (response.status === 401) {
-                authToken = null;
-                localStorage.removeItem('authToken');
-                showError('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.');
-                showLoginModal();
-                return;
-            } else if (response.status === 403) {
-                // Verificar si es error de tokens agotados
-                if (result.error === 'no_tokens_available') {
-                    const mensaje = result.mensaje || 'Has agotado tus tokens mensuales.';
-                    showError(`${mensaje}\n\nPuedes actualizar tu plan desde la sección de perfil.`);
-                    
-                    // Si hay información de límites, actualizarla en la UI
-                    if (result.limites && userInfo && userInfo.limites) {
-                        userInfo.limites.tokens_consumidos = result.limites.tokens_consumidos;
-                        userInfo.limites.tokens_limite_mensual = result.limites.tokens_limite;
-                        updatePlanInfo();
-                    }
-                } else {
-                    showError(result.mensaje || 'No tienes suficientes tokens o has alcanzado el límite de dispositivos.');
-                }
+            if (response.status === 403 && result.error === 'no_tokens_available') {
+                showError(`${result.mensaje || 'Has agotado tus tokens mensuales.'}\n\nPuedes actualizar tu plan desde la sección de perfil.`);
                 return;
             }
             throw new Error(result.error || 'Error en la clasificación');
         }
         
         if (result.success) {
-            hideLoading();
-            
-            // Actualizar información de consumo si está disponible
-            if (result.tokens_info && userInfo && userInfo.limites) {
-                userInfo.limites.tokens_consumidos += result.tokens_info.total_tokens;
-                const tokensText = `${userInfo.limites.tokens_consumidos.toLocaleString()} / ${userInfo.limites.tokens_limite_mensual.toLocaleString()} tokens`;
-                const tokensElement = document.getElementById('tokens-info');
-                if (tokensElement) tokensElement.textContent = tokensText;
-                
-                // Guardar en localStorage para persistir los cambios
-                localStorage.setItem('userInfo', JSON.stringify(userInfo));
-                console.log('💾 Tokens actualizados en localStorage:', userInfo.limites.tokens_consumidos);
-                
-                updatePlanInfo();
-            }
-            
-            // Guardar el resultado en la variable global
-            resultadoActual = result.data;
-            
-            // Si es modo solo_hs, mostrar solo el código
-            if (soloHS && result.data.hs) {
-                showResults({ hs: result.data.hs }, result.tokens_info);
-            } else {
-                // Modo completo: mostrar estructura ImportDUA
-                showResults(result.data, result.tokens_info);
-            }
-            
-            // Scroll suave a los resultados
-            document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
-            
-            showNotification('✅ Clasificación completada exitosamente', 'success');
-            
-            // Recargar historial si el usuario está autenticado
-            const token = localStorage.getItem('authToken');
-            if (token && typeof cargarHistorial === 'function') {
-                setTimeout(() => cargarHistorial(), 500);
-            }
+            procesarResultadoClasificacion(result, soloHS);
         } else {
             throw new Error('No se pudo obtener la clasificación');
         }
@@ -1838,6 +2011,1076 @@ async function clasificarArchivo() {
         console.error('Error:', error);
         hideLoading();
         showError(`Error al procesar el archivo: ${error.message}`);
+    }
+}
+
+// Nueva función: Clasificación con soporte de batch y confirmación de items
+// Nueva función: Clasificación con flujo de 3 pasos para detección de items
+async function clasificarArchivoConBatch() {
+    const soloHS = document.getElementById('solo-hs-archivo').checked;
+    
+    console.log('📤 Clasificando archivo (nuevo flujo):', archivoSeleccionado.name);
+    
+    try {
+        // PASO 1: Analizar el PDF con pdf-parse para detectar items automáticamente
+        mostrarProgresoBatch('Analizando documento con pdf-parse...', 0);
+        
+        const formData = new FormData();
+        formData.append('archivo', archivoSeleccionado);
+        
+        const headers = {};
+        if (authToken) {
+            headers['Authorization'] = `Bearer ${authToken}`;
+        }
+        
+        const analisisResponse = await fetch(`${API_BASE_URL}/analizar-pdf`, {
+            method: 'POST',
+            headers: headers,
+            body: formData
+        });
+        
+        const analisisResult = await analisisResponse.json();
+        
+        if (!analisisResponse.ok) {
+            throw new Error(analisisResult.error || 'Error al analizar documento');
+        }
+        
+        console.log('📊 Análisis pdf-parse:', analisisResult);
+        
+        // PASO 2: Mostrar resultado y preguntar al usuario
+        ocultarProgresoBatch();
+        
+        // Mostrar modal con el nuevo flujo de 3 pasos
+        const itemsConfirmados = await mostrarModalFlujoPasos(analisisResult);
+        
+        if (itemsConfirmados === false) {
+            // Usuario canceló
+            showNotification('Clasificación cancelada', 'info');
+            return;
+        }
+        
+        console.log('✅ Items confirmados:', itemsConfirmados);
+        
+        // PASO 3: Procesar con los items confirmados
+        mostrarProgresoBatch(`Procesando ${itemsConfirmados} items...`, 5);
+        
+        const necesitaBatch = itemsConfirmados > 10;
+        
+        if (necesitaBatch) {
+            await procesarConSSE(analisisResult.fileId, itemsConfirmados, soloHS);
+        } else {
+            await procesarDirecto(analisisResult.fileId, itemsConfirmados, soloHS);
+        }
+        
+    } catch (error) {
+        console.error('Error:', error);
+        ocultarProgresoBatch();
+        showError(`Error al procesar el archivo: ${error.message}`);
+    }
+}
+
+// NUEVO: Modal con flujo de 3 pasos para detección de items
+function mostrarModalFlujoPasos(datosAnalisis) {
+    return new Promise((resolve) => {
+        // Estado del modal
+        let pasoActual = 1;
+        let fileId = datosAnalisis.fileId;
+        let itemsDetectados = datosAnalisis.itemsDetectados || 0;
+        let metodoDeteccion = datosAnalisis.metodo || 'pdf-parse';
+        let confianza = datosAnalisis.confianza || 'baja';
+        
+        // Remover modal anterior si existe
+        const existingModal = document.getElementById('modal-confirmar-items');
+        if (existingModal) existingModal.remove();
+        
+        const modal = document.createElement('div');
+        modal.id = 'modal-confirmar-items';
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            padding: 20px;
+        `;
+        
+        const filename = datosAnalisis.filename || 'documento.pdf';
+        
+        // Función para renderizar el contenido según el paso
+        function renderizarPaso() {
+            const confianzaColor = confianza === 'alta' ? '#10b981' : confianza === 'media' ? '#f59e0b' : '#ef4444';
+            const confianzaIcon = confianza === 'alta' ? 'fa-check-circle' : confianza === 'media' ? 'fa-exclamation-circle' : 'fa-question-circle';
+            
+            if (pasoActual === 1) {
+                // PASO 1: Mostrar resultado de pdf-parse
+                modal.innerHTML = `
+                    <div style="background: white; border-radius: 16px; padding: 30px; max-width: 500px; width: 95%; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                        <h3 style="margin: 0 0 20px 0; color: #1e293b; display: flex; align-items: center; gap: 10px;">
+                            <i class="fas fa-file-pdf" style="color: #ef4444;"></i>
+                            Paso 1/4: Detección Automática
+                        </h3>
+                        
+                        <!-- Nombre del archivo -->
+                        <div style="background: #f8fafc; border-radius: 8px; padding: 12px; margin-bottom: 20px;">
+                            <p style="margin: 0; color: #64748b; font-size: 13px;">
+                                <i class="fas fa-file"></i> ${filename}
+                            </p>
+                        </div>
+                        
+                        <!-- Resultado de detección -->
+                        <div style="background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border-radius: 12px; padding: 25px; margin-bottom: 20px; text-align: center;">
+                            <p style="margin: 0 0 10px 0; color: #64748b; font-size: 14px;">
+                                <i class="fas fa-robot"></i> Análisis con pdf-parse
+                            </p>
+                            <div style="font-size: 48px; font-weight: bold; color: #1e40af; margin-bottom: 10px;">
+                                ${itemsDetectados}
+                            </div>
+                            <p style="margin: 0; color: #64748b; font-size: 14px;">
+                                items/productos detectados
+                            </p>
+                            <div style="margin-top: 15px; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background: ${confianzaColor}22; border-radius: 20px;">
+                                <i class="fas ${confianzaIcon}" style="color: ${confianzaColor};"></i>
+                                <span style="color: ${confianzaColor}; font-size: 13px; font-weight: 500;">
+                                    Confianza ${confianza}
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <!-- Pregunta -->
+                        <div style="background: #fef3c7; border-radius: 8px; padding: 15px; margin-bottom: 20px; text-align: center;">
+                            <p style="margin: 0; color: #92400e; font-size: 15px; font-weight: 500;">
+                                <i class="fas fa-question-circle"></i>
+                                ¿Es correcta esta cantidad?
+                            </p>
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px;">
+                            <button id="btn-cancelar" style="
+                                flex: 1;
+                                padding: 14px;
+                                border: 2px solid #e2e8f0;
+                                background: white;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                cursor: pointer;
+                                color: #64748b;
+                            ">
+                                <i class="fas fa-times"></i> Cancelar
+                            </button>
+                            <button id="btn-incorrecto" style="
+                                flex: 1;
+                                padding: 14px;
+                                border: 2px solid #f59e0b;
+                                background: #fffbeb;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                cursor: pointer;
+                                color: #b45309;
+                            ">
+                                <i class="fas fa-redo"></i> No, detectar con IA
+                            </button>
+                            <button id="btn-correcto" style="
+                                flex: 1.5;
+                                padding: 14px;
+                                border: none;
+                                background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+                                color: white;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                font-weight: 600;
+                                cursor: pointer;
+                            ">
+                                <i class="fas fa-check"></i> Sí, clasificar
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                // Event listeners paso 1
+                document.getElementById('btn-cancelar').onclick = () => {
+                    modal.remove();
+                    resolve(false);
+                };
+                
+                document.getElementById('btn-incorrecto').onclick = async () => {
+                    pasoActual = 2;
+                    await detectarConIA();
+                };
+                
+                document.getElementById('btn-correcto').onclick = () => {
+                    modal.remove();
+                    resolve(itemsDetectados);
+                };
+                
+            } else if (pasoActual === 2) {
+                // PASO 2: Mostrar resultado de detección con IA
+                modal.innerHTML = `
+                    <div style="background: white; border-radius: 16px; padding: 30px; max-width: 500px; width: 95%; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                        <h3 style="margin: 0 0 20px 0; color: #1e293b; display: flex; align-items: center; gap: 10px;">
+                            <i class="fas fa-brain" style="color: #8b5cf6;"></i>
+                            Paso 2/4: Detección con IA
+                        </h3>
+                        
+                        <!-- Nombre del archivo -->
+                        <div style="background: #f8fafc; border-radius: 8px; padding: 12px; margin-bottom: 20px;">
+                            <p style="margin: 0; color: #64748b; font-size: 13px;">
+                                <i class="fas fa-file"></i> ${filename}
+                            </p>
+                        </div>
+                        
+                        <!-- Resultado de IA -->
+                        <div style="background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%); border-radius: 12px; padding: 25px; margin-bottom: 20px; text-align: center;">
+                            <p style="margin: 0 0 10px 0; color: #7c3aed; font-size: 14px;">
+                                <i class="fas fa-brain"></i> Análisis con Inteligencia Artificial
+                            </p>
+                            <div style="font-size: 48px; font-weight: bold; color: #6d28d9; margin-bottom: 10px;">
+                                ${itemsDetectados}
+                            </div>
+                            <p style="margin: 0; color: #64748b; font-size: 14px;">
+                                items/productos detectados
+                            </p>
+                        </div>
+                        
+                        <!-- Pregunta -->
+                        <div style="background: #fef3c7; border-radius: 8px; padding: 15px; margin-bottom: 20px; text-align: center;">
+                            <p style="margin: 0; color: #92400e; font-size: 15px; font-weight: 500;">
+                                <i class="fas fa-question-circle"></i>
+                                ¿Es correcta esta cantidad?
+                            </p>
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <button id="btn-cancelar" style="
+                                flex: 1;
+                                min-width: 100px;
+                                padding: 14px;
+                                border: 2px solid #e2e8f0;
+                                background: white;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                cursor: pointer;
+                                color: #64748b;
+                            ">
+                                <i class="fas fa-times"></i> Cancelar
+                            </button>
+                            <button id="btn-forzar-ia" style="
+                                flex: 1;
+                                min-width: 100px;
+                                padding: 14px;
+                                border: 2px solid #8b5cf6;
+                                background: #f5f3ff;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                cursor: pointer;
+                                color: #7c3aed;
+                            ">
+                                <i class="fas fa-magic"></i> Indicar a IA
+                            </button>
+                            <button id="btn-manual" style="
+                                flex: 1;
+                                min-width: 100px;
+                                padding: 14px;
+                                border: 2px solid #f59e0b;
+                                background: #fffbeb;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                cursor: pointer;
+                                color: #b45309;
+                            ">
+                                <i class="fas fa-edit"></i> Manual
+                            </button>
+                            <button id="btn-correcto" style="
+                                flex: 1.5;
+                                min-width: 120px;
+                                padding: 14px;
+                                border: none;
+                                background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+                                color: white;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                font-weight: 600;
+                                cursor: pointer;
+                            ">
+                                <i class="fas fa-check"></i> Sí, clasificar
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                // Event listeners paso 2
+                document.getElementById('btn-cancelar').onclick = () => {
+                    modal.remove();
+                    resolve(false);
+                };
+                
+                document.getElementById('btn-forzar-ia').onclick = () => {
+                    pasoActual = 2.5;
+                    renderizarPaso();
+                };
+                
+                document.getElementById('btn-manual').onclick = () => {
+                    pasoActual = 3;
+                    renderizarPaso();
+                };
+                
+                document.getElementById('btn-correcto').onclick = () => {
+                    modal.remove();
+                    resolve(itemsDetectados);
+                };
+                
+            } else if (pasoActual === 2.5) {
+                // PASO 2.5: Forzar conteo con IA (FORCE_ITEM_COUNT)
+                modal.innerHTML = `
+                    <div style="background: white; border-radius: 16px; padding: 30px; max-width: 500px; width: 95%; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                        <h3 style="margin: 0 0 20px 0; color: #1e293b; display: flex; align-items: center; gap: 10px;">
+                            <i class="fas fa-magic" style="color: #8b5cf6;"></i>
+                            Paso 3/4: Indicar Cantidad a la IA
+                        </h3>
+                        
+                        <!-- Nombre del archivo -->
+                        <div style="background: #f8fafc; border-radius: 8px; padding: 12px; margin-bottom: 20px;">
+                            <p style="margin: 0; color: #64748b; font-size: 13px;">
+                                <i class="fas fa-file"></i> ${filename}
+                            </p>
+                        </div>
+                        
+                        <!-- Input para forzar cantidad -->
+                        <div style="background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%); border-radius: 12px; padding: 25px; margin-bottom: 20px; text-align: center;">
+                            <label style="display: block; margin-bottom: 15px; color: #7c3aed; font-weight: 600; font-size: 16px;">
+                                <i class="fas fa-brain"></i> ¿Cuántos items tiene el documento?
+                            </label>
+                            <input type="number" id="input-items-forzar" 
+                                value="${itemsDetectados || 1}" 
+                                min="1" 
+                                max="500"
+                                style="width: 150px; padding: 16px; border: 3px solid #8b5cf6; border-radius: 12px; font-size: 28px; text-align: center; font-weight: bold; color: #7c3aed;"
+                            >
+                            <p style="margin: 15px 0 0 0; color: #64748b; font-size: 13px;">
+                                La IA usará este número como referencia autoritativa
+                            </p>
+                        </div>
+                        
+                        <!-- Info -->
+                        <div style="background: #f5f3ff; border-radius: 8px; padding: 12px; margin-bottom: 20px;">
+                            <p style="margin: 0; color: #7c3aed; font-size: 13px;">
+                                <i class="fas fa-info-circle"></i>
+                                Se enviará <strong>FORCE_ITEM_COUNT</strong> a la IA para confirmar el conteo.
+                            </p>
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px;">
+                            <button id="btn-volver" style="
+                                flex: 1;
+                                padding: 14px;
+                                border: 2px solid #e2e8f0;
+                                background: white;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                cursor: pointer;
+                                color: #64748b;
+                            ">
+                                <i class="fas fa-arrow-left"></i> Volver
+                            </button>
+                            <button id="btn-forzar-enviar" style="
+                                flex: 2;
+                                padding: 14px;
+                                border: none;
+                                background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+                                color: white;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                font-weight: 600;
+                                cursor: pointer;
+                            ">
+                                <i class="fas fa-paper-plane"></i> Confirmar con IA
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                // Focus en el input
+                setTimeout(() => {
+                    const input = document.getElementById('input-items-forzar');
+                    if (input) {
+                        input.focus();
+                        input.select();
+                    }
+                }, 100);
+                
+                // Event listeners paso 2.5
+                document.getElementById('btn-volver').onclick = () => {
+                    pasoActual = 2;
+                    renderizarPaso();
+                };
+                
+                document.getElementById('btn-forzar-enviar').onclick = async () => {
+                    const itemsForzados = parseInt(document.getElementById('input-items-forzar').value) || 1;
+                    await forzarConteoConIA(itemsForzados);
+                };
+                
+                // Enter para confirmar
+                document.getElementById('input-items-forzar').onkeypress = (e) => {
+                    if (e.key === 'Enter') {
+                        document.getElementById('btn-forzar-enviar').click();
+                    }
+                };
+                
+            } else if (pasoActual === 3) {
+                // PASO 3: Entrada manual
+                modal.innerHTML = `
+                    <div style="background: white; border-radius: 16px; padding: 30px; max-width: 500px; width: 95%; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                        <h3 style="margin: 0 0 20px 0; color: #1e293b; display: flex; align-items: center; gap: 10px;">
+                            <i class="fas fa-edit" style="color: #f59e0b;"></i>
+                            Paso 4/4: Entrada Manual
+                        </h3>
+                        
+                        <!-- Nombre del archivo -->
+                        <div style="background: #f8fafc; border-radius: 8px; padding: 12px; margin-bottom: 20px;">
+                            <p style="margin: 0; color: #64748b; font-size: 13px;">
+                                <i class="fas fa-file"></i> ${filename}
+                            </p>
+                        </div>
+                        
+                        <!-- Input manual -->
+                        <div style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border-radius: 12px; padding: 25px; margin-bottom: 20px; text-align: center;">
+                            <label style="display: block; margin-bottom: 15px; color: #b45309; font-weight: 600; font-size: 16px;">
+                                <i class="fas fa-boxes"></i> Ingrese la cantidad de items/productos:
+                            </label>
+                            <input type="number" id="input-items-manual" 
+                                value="${itemsDetectados || 1}" 
+                                min="1" 
+                                max="500"
+                                style="width: 150px; padding: 16px; border: 3px solid #f59e0b; border-radius: 12px; font-size: 28px; text-align: center; font-weight: bold; color: #b45309;"
+                            >
+                        </div>
+                        
+                        <!-- Info -->
+                        <div style="background: #ecfdf5; border-radius: 8px; padding: 12px; margin-bottom: 20px;">
+                            <p style="margin: 0; color: #059669; font-size: 13px;">
+                                <i class="fas fa-info-circle"></i>
+                                Si son más de 10 items, se procesarán en lotes automáticamente.
+                            </p>
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px;">
+                            <button id="btn-cancelar" style="
+                                flex: 1;
+                                padding: 14px;
+                                border: 2px solid #e2e8f0;
+                                background: white;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                cursor: pointer;
+                                color: #64748b;
+                            ">
+                                <i class="fas fa-times"></i> Cancelar
+                            </button>
+                            <button id="btn-clasificar" style="
+                                flex: 2;
+                                padding: 14px;
+                                border: none;
+                                background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+                                color: white;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                font-weight: 600;
+                                cursor: pointer;
+                            ">
+                                <i class="fas fa-play"></i> Clasificar
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                // Focus en el input
+                setTimeout(() => {
+                    const input = document.getElementById('input-items-manual');
+                    if (input) {
+                        input.focus();
+                        input.select();
+                    }
+                }, 100);
+                
+                // Event listeners paso 3
+                document.getElementById('btn-cancelar').onclick = () => {
+                    modal.remove();
+                    resolve(false);
+                };
+                
+                document.getElementById('btn-clasificar').onclick = () => {
+                    const items = parseInt(document.getElementById('input-items-manual').value) || 1;
+                    modal.remove();
+                    resolve(items);
+                };
+                
+                // Enter para confirmar
+                document.getElementById('input-items-manual').onkeypress = (e) => {
+                    if (e.key === 'Enter') {
+                        document.getElementById('btn-clasificar').click();
+                    }
+                };
+            }
+        }
+        
+        // Función para detectar con IA
+        async function detectarConIA() {
+            // Mostrar loading
+            modal.innerHTML = `
+                <div style="background: white; border-radius: 16px; padding: 30px; max-width: 500px; width: 95%; box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center;">
+                    <div style="font-size: 48px; color: #8b5cf6; margin-bottom: 20px;">
+                        <i class="fas fa-brain fa-pulse"></i>
+                    </div>
+                    <h3 style="margin: 0 0 10px 0; color: #1e293b;">
+                        Analizando con Inteligencia Artificial...
+                    </h3>
+                    <p style="margin: 0; color: #64748b; font-size: 14px;">
+                        La IA está contando los items en el documento
+                    </p>
+                    <div style="margin-top: 20px;">
+                        <div style="width: 100%; height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden;">
+                            <div style="width: 60%; height: 100%; background: linear-gradient(90deg, #8b5cf6, #a78bfa); animation: loading 1.5s infinite;"></div>
+                        </div>
+                    </div>
+                </div>
+                <style>
+                    @keyframes loading {
+                        0% { transform: translateX(-100%); }
+                        100% { transform: translateX(200%); }
+                    }
+                </style>
+            `;
+            
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (authToken) {
+                    headers['Authorization'] = `Bearer ${authToken}`;
+                }
+                
+                const response = await fetch(`${API_BASE_URL}/detectar-items-ia`, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({ fileId })
+                });
+                
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.error || 'Error al detectar items con IA');
+                }
+                
+                console.log('🤖 Resultado IA:', result);
+                
+                // Actualizar items detectados
+                itemsDetectados = result.itemsDetectados || 1;
+                metodoDeteccion = 'ia';
+                
+                // Renderizar paso 2 con el resultado
+                renderizarPaso();
+                
+            } catch (error) {
+                console.error('Error detectando con IA:', error);
+                // Si falla la IA, ir directo al paso manual
+                pasoActual = 3;
+                renderizarPaso();
+                showNotification('No se pudo detectar con IA. Por favor ingrese la cantidad manualmente.', 'warning');
+            }
+        }
+        
+        // Función para forzar conteo con IA (FORCE_ITEM_COUNT)
+        async function forzarConteoConIA(cantidadForzada) {
+            // Mostrar loading
+            modal.innerHTML = `
+                <div style="background: white; border-radius: 16px; padding: 30px; max-width: 500px; width: 95%; box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center;">
+                    <div style="font-size: 48px; color: #8b5cf6; margin-bottom: 20px;">
+                        <i class="fas fa-magic fa-pulse"></i>
+                    </div>
+                    <h3 style="margin: 0 0 10px 0; color: #1e293b;">
+                        Confirmando con IA...
+                    </h3>
+                    <p style="margin: 0; color: #64748b; font-size: 14px;">
+                        Enviando FORCE_ITEM_COUNT: ${cantidadForzada}
+                    </p>
+                    <div style="margin-top: 20px;">
+                        <div style="width: 100%; height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden;">
+                            <div style="width: 60%; height: 100%; background: linear-gradient(90deg, #8b5cf6, #a78bfa); animation: loading 1.5s infinite;"></div>
+                        </div>
+                    </div>
+                </div>
+                <style>
+                    @keyframes loading {
+                        0% { transform: translateX(-100%); }
+                        100% { transform: translateX(200%); }
+                    }
+                </style>
+            `;
+            
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (authToken) {
+                    headers['Authorization'] = `Bearer ${authToken}`;
+                }
+                
+                const response = await fetch(`${API_BASE_URL}/forzar-conteo-ia`, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({ fileId, cantidadForzada })
+                });
+                
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.error || 'Error al forzar conteo con IA');
+                }
+                
+                console.log('🎯 Resultado forzar IA:', result);
+                
+                // Actualizar items con el valor confirmado
+                itemsDetectados = result.itemsConfirmados || cantidadForzada;
+                metodoDeteccion = 'ia-forzado';
+                
+                // La IA confirmó, proceder a clasificar
+                modal.remove();
+                resolve(itemsDetectados);
+                
+            } catch (error) {
+                console.error('Error forzando conteo con IA:', error);
+                // Si falla, usar el valor que indicó el usuario
+                showNotification(`Usando cantidad indicada: ${cantidadForzada} items`, 'info');
+                modal.remove();
+                resolve(cantidadForzada);
+            }
+        }
+        
+        document.body.appendChild(modal);
+        
+        // Click fuera para cancelar
+        modal.onclick = (e) => {
+            if (e.target === modal) {
+                modal.remove();
+                resolve(false);
+            }
+        };
+        
+        // Renderizar primer paso
+        renderizarPaso();
+    });
+}
+
+// Mantener función legacy por compatibilidad
+function mostrarModalConfirmacionItems(datos) {
+    // Redirigir al nuevo flujo
+    return mostrarModalFlujoPasos(datos);
+}
+
+// Procesar con SSE (para batch con progreso)
+async function procesarConSSE(fileId, itemsConfirmados, soloHS) {
+    // Primero, iniciar clasificación para que el archivo se registre con los items correctos
+    const formData = new FormData();
+    formData.append('archivo', archivoSeleccionado);
+    formData.append('solo_hs', soloHS);
+    formData.append('operationType', 'import');
+    formData.append('itemsUsuario', itemsConfirmados);
+    
+    const headers = {};
+    if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+    }
+    
+    const initResponse = await fetch(`${API_BASE_URL}/clasificar-archivo-iniciar`, {
+        method: 'POST',
+        headers: headers,
+        body: formData
+    });
+    
+    const initResult = await initResponse.json();
+    
+    if (!initResponse.ok) {
+        throw new Error(initResult.error || 'Error al iniciar clasificación');
+    }
+    
+    const batchFileId = initResult.fileId;
+    const totalBatches = Math.ceil(itemsConfirmados / 10);
+    
+    mostrarProgresoBatch(
+        `Procesando ${itemsConfirmados} items en ${totalBatches} lotes...`,
+        5
+    );
+    
+    batchEnProgreso = true;
+    
+    const eventSource = new EventSource(`${API_BASE_URL}/clasificar-archivo-stream/${batchFileId}`);
+    
+    return new Promise((resolve, reject) => {
+        eventSource.addEventListener('inicio', (e) => {
+            const data = JSON.parse(e.data);
+            console.log('🚀 Inicio:', data);
+            mostrarProgresoBatch(data.mensaje, 10);
+        });
+        
+        eventSource.addEventListener('progreso', (e) => {
+            const data = JSON.parse(e.data);
+            console.log('📦 Batch:', data);
+            mostrarProgresoBatch(
+                `Lote ${data.batch}/${data.totalBatches}: ${data.productosAcumulados} productos...`,
+                10 + (data.progreso * 0.8)
+            );
+        });
+        
+        eventSource.addEventListener('completo', (e) => {
+            const data = JSON.parse(e.data);
+            console.log('✅ Completo:', data);
+            eventSource.close();
+            batchEnProgreso = false;
+            ocultarProgresoBatch();
+            
+            if (data.success) {
+                procesarResultadoClasificacion(data, soloHS);
+                resolve(data);
+            } else {
+                reject(new Error(data.error || 'Error en clasificación'));
+            }
+        });
+        
+        eventSource.addEventListener('error', (e) => {
+            const data = JSON.parse(e.data);
+            console.error('❌ Error en stream:', data);
+            eventSource.close();
+            batchEnProgreso = false;
+            ocultarProgresoBatch();
+            reject(new Error(data.error));
+        });
+        
+        eventSource.onerror = (error) => {
+            console.error('❌ Error de conexión SSE:', error);
+            eventSource.close();
+            batchEnProgreso = false;
+            
+            // Intentar método tradicional como fallback
+            console.log('⚠️ Reconectando con método tradicional...');
+            clasificarArchivoTradicional().then(resolve).catch(reject);
+        };
+    });
+}
+
+// Procesar directo (sin batch)
+async function procesarDirecto(fileId, itemsConfirmados, soloHS) {
+    mostrarProgresoBatch('Procesando documento...', 30);
+    
+    const headers = {
+        'Content-Type': 'application/json'
+    };
+    if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+    }
+    
+    const response = await fetch(`${API_BASE_URL}/procesar-pdf-confirmado`, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+            fileId,
+            itemsConfirmados,
+            soloHS,
+            operationType: 'import'
+        })
+    });
+    
+    const result = await response.json();
+    
+    ocultarProgresoBatch();
+    
+    if (!response.ok) {
+        throw new Error(result.error || 'Error al procesar documento');
+    }
+    
+    procesarResultadoClasificacion(result, soloHS);
+}
+
+// Mantener compatibilidad con el código anterior
+async function clasificarArchivoConBatchLegacy() {
+    const soloHS = document.getElementById('solo-hs-archivo').checked;
+    
+    console.log('📤 Clasificando archivo (legacy):', archivoSeleccionado.name);
+    
+    try {
+        // Paso 1: Iniciar clasificación y obtener análisis del documento
+        mostrarProgresoBatch('Analizando documento...', 0);
+        
+        const formData = new FormData();
+        formData.append('archivo', archivoSeleccionado);
+        formData.append('solo_hs', soloHS);
+        formData.append('operationType', 'import');
+        
+        const headers = {};
+        if (authToken) {
+            headers['Authorization'] = `Bearer ${authToken}`;
+        }
+        
+        const initResponse = await fetch(`${API_BASE_URL}/clasificar-archivo-iniciar`, {
+            method: 'POST',
+            headers: headers,
+            body: formData
+        });
+        
+        const initResult = await initResponse.json();
+        
+        if (!initResponse.ok) {
+            throw new Error(initResult.error || 'Error al iniciar clasificación');
+        }
+        
+        console.log('📊 Análisis del documento:', initResult.analisis);
+        
+        // Mostrar información del análisis
+        if (initResult.analisis.necesitaBatch) {
+            mostrarProgresoBatch(
+                `Factura con ${initResult.analisis.totalItems} items detectados. Procesando en ${initResult.analisis.totalBatches} lotes...`,
+                5
+            );
+        } else {
+            mostrarProgresoBatch('Procesando documento...', 10);
+        }
+        
+        // Paso 2: Iniciar stream SSE para recibir progreso
+        batchEnProgreso = true;
+        
+        const eventSource = new EventSource(`${API_BASE_URL}/clasificar-archivo-stream/${initResult.fileId}`);
+        
+        return new Promise((resolve, reject) => {
+            eventSource.addEventListener('inicio', (e) => {
+                const data = JSON.parse(e.data);
+                console.log('🚀 Inicio:', data);
+                mostrarProgresoBatch(data.mensaje, 10);
+            });
+            
+            eventSource.addEventListener('progreso', (e) => {
+                const data = JSON.parse(e.data);
+                console.log(`📦 Batch ${data.batch}/${data.totalBatches}:`, data);
+                
+                const mensaje = `Procesando batch ${data.batch} de ${data.totalBatches} (items ${data.itemsInicio}-${data.itemsFin})`;
+                mostrarProgresoBatch(mensaje, data.progreso, {
+                    batch: data.batch,
+                    totalBatches: data.totalBatches,
+                    productosAcumulados: data.productosAcumulados
+                });
+            });
+            
+            eventSource.addEventListener('completo', (e) => {
+                const data = JSON.parse(e.data);
+                console.log('✅ Clasificación completada:', data);
+                
+                eventSource.close();
+                batchEnProgreso = false;
+                ocultarProgresoBatch();
+                
+                if (data.success) {
+                    procesarResultadoClasificacion(data, soloHS);
+                    resolve(data);
+                } else {
+                    reject(new Error(data.error || 'Error en clasificación'));
+                }
+            });
+            
+            eventSource.addEventListener('error', (e) => {
+                if (e.data) {
+                    const data = JSON.parse(e.data);
+                    console.error('❌ Error en stream:', data);
+                    eventSource.close();
+                    batchEnProgreso = false;
+                    ocultarProgresoBatch();
+                    showError(`Error: ${data.error}`);
+                    reject(new Error(data.error));
+                }
+            });
+            
+            eventSource.onerror = (e) => {
+                console.error('❌ Error de conexión SSE:', e);
+                eventSource.close();
+                batchEnProgreso = false;
+                ocultarProgresoBatch();
+                
+                // Si perdemos conexión, intentar con el método tradicional
+                console.log('⚠️ Reconectando con método tradicional...');
+                clasificarArchivoTradicional().then(resolve).catch(reject);
+            };
+        });
+        
+    } catch (error) {
+        console.error('Error:', error);
+        batchEnProgreso = false;
+        ocultarProgresoBatch();
+        showError(`Error al procesar el archivo: ${error.message}`);
+    }
+}
+
+// Función para mostrar progreso del batch
+function mostrarProgresoBatch(mensaje, progreso, detalles = null) {
+    let progressContainer = document.getElementById('batch-progress-container');
+    
+    if (!progressContainer) {
+        progressContainer = document.createElement('div');
+        progressContainer.id = 'batch-progress-container';
+        progressContainer.innerHTML = `
+            <div class="batch-progress-overlay">
+                <div class="batch-progress-modal">
+                    <div class="batch-progress-header">
+                        <i class="fas fa-sync-alt fa-spin"></i>
+                        <h3>Procesando Factura</h3>
+                    </div>
+                    <div class="batch-progress-content">
+                        <p id="batch-progress-mensaje">${mensaje}</p>
+                        <div class="batch-progress-bar-container">
+                            <div class="batch-progress-bar" id="batch-progress-bar" style="width: ${progreso}%"></div>
+                        </div>
+                        <span class="batch-progress-percent" id="batch-progress-percent">${progreso}%</span>
+                        <div id="batch-progress-detalles" class="batch-progress-detalles"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(progressContainer);
+        
+        // Agregar estilos si no existen
+        if (!document.getElementById('batch-progress-styles')) {
+            const styles = document.createElement('style');
+            styles.id = 'batch-progress-styles';
+            styles.textContent = `
+                .batch-progress-overlay {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: rgba(0, 0, 0, 0.7);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 10000;
+                }
+                .batch-progress-modal {
+                    background: white;
+                    border-radius: 16px;
+                    padding: 2rem;
+                    max-width: 500px;
+                    width: 90%;
+                    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+                }
+                .batch-progress-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 1rem;
+                    margin-bottom: 1.5rem;
+                }
+                .batch-progress-header i {
+                    font-size: 2rem;
+                    color: #667eea;
+                }
+                .batch-progress-header h3 {
+                    margin: 0;
+                    color: #1a202c;
+                }
+                .batch-progress-content p {
+                    color: #4a5568;
+                    margin-bottom: 1rem;
+                }
+                .batch-progress-bar-container {
+                    background: #e2e8f0;
+                    border-radius: 10px;
+                    height: 20px;
+                    overflow: hidden;
+                    margin-bottom: 0.5rem;
+                }
+                .batch-progress-bar {
+                    background: linear-gradient(90deg, #667eea, #764ba2);
+                    height: 100%;
+                    border-radius: 10px;
+                    transition: width 0.3s ease;
+                }
+                .batch-progress-percent {
+                    display: block;
+                    text-align: center;
+                    font-weight: bold;
+                    color: #667eea;
+                }
+                .batch-progress-detalles {
+                    margin-top: 1rem;
+                    padding-top: 1rem;
+                    border-top: 1px solid #e2e8f0;
+                    font-size: 0.875rem;
+                    color: #718096;
+                }
+            `;
+            document.head.appendChild(styles);
+        }
+    } else {
+        document.getElementById('batch-progress-mensaje').textContent = mensaje;
+        document.getElementById('batch-progress-bar').style.width = `${progreso}%`;
+        document.getElementById('batch-progress-percent').textContent = `${progreso}%`;
+    }
+    
+    // Mostrar detalles si están disponibles
+    const detallesEl = document.getElementById('batch-progress-detalles');
+    if (detalles && detallesEl) {
+        detallesEl.innerHTML = `
+            <div><strong>Batch:</strong> ${detalles.batch} de ${detalles.totalBatches}</div>
+            <div><strong>Productos procesados:</strong> ${detalles.productosAcumulados}</div>
+        `;
+    }
+}
+
+// Función para ocultar progreso del batch
+function ocultarProgresoBatch() {
+    const container = document.getElementById('batch-progress-container');
+    if (container) {
+        container.remove();
+    }
+}
+
+// Función común para procesar el resultado de la clasificación
+function procesarResultadoClasificacion(result, soloHS) {
+    hideLoading();
+    
+    // Actualizar información de consumo si está disponible
+    if (result.tokens_info && userInfo && userInfo.limites) {
+        userInfo.limites.tokens_consumidos += result.tokens_info.total_tokens || 0;
+        const tokensText = `${userInfo.limites.tokens_consumidos.toLocaleString()} / ${userInfo.limites.tokens_limite_mensual.toLocaleString()} tokens`;
+        const tokensElement = document.getElementById('tokens-info');
+        if (tokensElement) tokensElement.textContent = tokensText;
+        
+        localStorage.setItem('userInfo', JSON.stringify(userInfo));
+        updatePlanInfo();
+    }
+    
+    // Guardar el resultado en la variable global
+    resultadoActual = result.data;
+    
+    // Si es modo solo_hs, mostrar solo el código
+    if (soloHS && result.data.hs) {
+        showResults({ hs: result.data.hs }, result.tokens_info);
+    } else {
+        showResults(result.data, result.tokens_info);
+    }
+    
+    // Mostrar info de batch si aplica
+    if (result.batchInfo && result.batchInfo.modoBatch) {
+        showNotification(
+            `✅ Clasificación completada: ${result.batchInfo.productosObtenidos} productos en ${result.batchInfo.totalBatches} lotes`,
+            'success'
+        );
+    } else {
+        showNotification('✅ Clasificación completada exitosamente', 'success');
+    }
+    
+    // Scroll suave a los resultados
+    document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    
+    // Recargar historial si el usuario está autenticado
+    const token = localStorage.getItem('authToken');
+    if (token && typeof cargarHistorial === 'function') {
+        setTimeout(() => cargarHistorial(), 500);
     }
 }
 
@@ -2772,11 +4015,13 @@ function displayPlanes(planes) {
         const planCard = document.createElement('div');
         planCard.className = `plan-card ${isCurrentPlan ? 'current' : 'selectable'}`;
         
-        // Formatear tokens usando los nombres correctos de la BD
-        const tokens = plan.tokens_mes || plan.tokens_incluidos || 0;
+        // Formatear tokens - usar tokens_mes (nombre en la BD)
+        const tokens = plan.tokens_mes || 0;
         let tokensText;
         if (tokens === -1) {
             tokensText = 'Ilimitados';
+        } else if (tokens >= 1000000) {
+            tokensText = (tokens / 1000000).toFixed(1) + 'M';
         } else if (tokens >= 1000) {
             tokensText = (tokens / 1000) + 'K';
         } else {
@@ -2784,14 +4029,18 @@ function displayPlanes(planes) {
         }
         
         // Formatear dispositivos
-        const dispositivos = plan.dispositivos_concurrentes || plan.max_dispositivos || 0;
+        const dispositivos = plan.dispositivos_concurrentes || 0;
         let dispositivosText = dispositivos === -1 ? 'Ilimitados' : dispositivos;
         
-        const precio = plan.precio_mensual !== undefined ? plan.precio_mensual : (plan.precio || 0);
+        // Usar precio_mensual_usd (nombre correcto en la BD)
+        const precio = plan.precio_mensual_usd || plan.precio_mensual || 0;
+        
+        // Usar plan.id como nombre si no existe nombre
+        const nombrePlan = plan.nombre || plan.id || 'Plan';
         
         planCard.innerHTML = `
             <div class="plan-header">
-                <div class="plan-name">${plan.nombre}</div>
+                <div class="plan-name">${nombrePlan}</div>
                 <div class="plan-price">$${precio.toFixed(2)}/mes</div>
             </div>
             <div class="plan-details">
@@ -2868,76 +4117,94 @@ async function cambiarPlan(planId) {
 }
 
 async function loadConsumoHistory() {
+    const historyContainer = document.getElementById('consumo-history');
+    if (!historyContainer) return;
+    
     try {
-        // await checkAuthStatus(); // Comentado - función no existe
-        // Datos demo de historial de consumo
-        const historialDemo = [
-            { fecha: '2025-11-01', tokens: 245, tipo: 'texto' },
-            { fecha: '2025-11-02', tokens: 189, tipo: 'archivo' },
-            { fecha: '2025-11-03', tokens: 67, tipo: 'manual' },
-            { fecha: '2025-11-04', tokens: 312, tipo: 'texto' },
-            { fecha: '2025-11-05', tokens: 156, tipo: 'archivo' },
-        ];
-        
-        const historialHtml = historialDemo.map(item => `
-            <div class="history-item">
-                <span class="history-date">${item.fecha}</span>
-                <span class="history-type">${item.tipo}</span>
-                <span class="history-tokens">${item.tokens} tokens</span>
-            </div>
-        `).join('');
-        
-        document.getElementById('consumo-history').innerHTML = `
+        // Mostrar loading
+        historyContainer.innerHTML = `
             <div class="history-content">
-                <h4>Historial de Uso (Demo)</h4>
+                <h4>📊 Últimas Clasificaciones</h4>
+                <div class="loading-spinner">Cargando historial...</div>
+            </div>
+        `;
+        
+        // Obtener historial real desde el API
+        const response = await fetch(`${API_BASE_URL}/api/historial?limite=10`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error('Error al cargar historial');
+        }
+        
+        const data = await response.json();
+        const clasificaciones = data.clasificaciones || [];
+        
+        if (clasificaciones.length === 0) {
+            historyContainer.innerHTML = `
+                <div class="history-content">
+                    <h4>📊 Últimas Clasificaciones</h4>
+                    <p class="no-history">No hay clasificaciones recientes</p>
+                </div>
+            `;
+            return;
+        }
+        
+        // Formatear y mostrar historial
+        const historialHtml = clasificaciones.slice(0, 10).map(item => {
+            const fecha = new Date(item.fecha_creacion).toLocaleDateString('es-ES', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+            });
+            const hora = new Date(item.fecha_creacion).toLocaleTimeString('es-ES', {
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            const tipo = item.tipo_operacion || 'texto';
+            // Obtener el primer HSCode de los productos
+            const fraccion = (item.productos && item.productos.length > 0 && item.productos[0].HSCode) 
+                ? item.productos[0].HSCode 
+                : 'N/A';
+            const nombreArchivo = item.nombre_archivo || 'Sin nombre';
+            const descripcion = nombreArchivo.substring(0, 30);
+            const tokensUsados = item.tokens_consumidos || 0;
+            
+            return `
+                <div class="history-item">
+                    <div class="history-main">
+                        <span class="history-date">${fecha} ${hora}</span>
+                        <span class="history-fraccion">${fraccion}</span>
+                    </div>
+                    <div class="history-details">
+                        <span class="history-type tipo-${tipo}">${tipo}</span>
+                        <span class="history-desc" title="${nombreArchivo}">${descripcion}${nombreArchivo.length > 30 ? '...' : ''}</span>
+                        <span class="history-tokens">🔥 ${tokensUsados.toLocaleString()} tokens</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        historyContainer.innerHTML = `
+            <div class="history-content">
+                <h4>📊 Últimas Clasificaciones</h4>
                 ${historialHtml}
             </div>
         `;
+        
     } catch (error) {
         console.error('Error cargando historial:', error);
-    }
-}
-
-function updatePlanInfo() {
-    // Información de plan demo
-    const planDemo = {
-        id: 'profesional',
-        precio_mensual_usd: 59.99,
-        tokens_mes: 5000,
-        dispositivos_concurrentes: 5
-    };
-    
-    // Actualizar información del plan actual
-    document.getElementById('current-plan-name').textContent = planDemo.id;
-    document.getElementById('current-plan-price').textContent = `$${planDemo.precio_mensual_usd}/mes`;
-    
-    let tokensFormatted = (planDemo.tokens_mes / 1000).toLocaleString() + 'K';
-    if (planDemo.tokens_mes >= 1000000) {
-        tokensFormatted = (planDemo.tokens_mes / 1000000).toLocaleString() + 'M';
-    }
-    document.getElementById('current-plan-tokens').textContent = `${tokensFormatted} tokens/mes`;
-    document.getElementById('current-plan-devices').textContent = `${planDemo.dispositivos_concurrentes} dispositivos`;
-    
-    // Actualizar barra de progreso de tokens
-    if (userInfo && userInfo.limites) {
-        const porcentajeUso = (userInfo.limites.tokens_consumidos / userInfo.limites.tokens_limite_mensual) * 100;
-        const progressBar = document.getElementById('tokens-progress');
-        if (progressBar) progressBar.style.width = `${Math.min(porcentajeUso, 100)}%`;
-        
-        const tokensUsageText = `${userInfo.limites.tokens_consumidos.toLocaleString()} / ${userInfo.limites.tokens_limite_mensual.toLocaleString()} tokens`;
-        const usageTextElement = document.getElementById('tokens-usage-text');
-        if (usageTextElement) usageTextElement.textContent = tokensUsageText;
-        
-        // Cambiar color de la barra según el uso
-        if (progressBar) {
-            if (porcentajeUso > 90) {
-                progressBar.style.background = 'linear-gradient(90deg, var(--error-color), var(--warning-color))';
-            } else if (porcentajeUso > 70) {
-                progressBar.style.background = 'linear-gradient(90deg, var(--warning-color), var(--success-color))';
-            } else {
-                progressBar.style.background = 'linear-gradient(90deg, var(--success-color), var(--warning-color))';
-            }
-        }
+        historyContainer.innerHTML = `
+            <div class="history-content">
+                <h4>📊 Últimas Clasificaciones</h4>
+                <p class="error-message">Error al cargar historial</p>
+            </div>
+        `;
     }
 }
 
@@ -5088,44 +6355,8 @@ function continuarSinAutenticacion() {
 
 // Función para generar un device fingerprint simple
 function generateDeviceFingerprint() {
-    // Intentar obtener un fingerprint guardado (PERMANENTE)
-    let fingerprint = localStorage.getItem('deviceFingerprint');
-    
-    if (!fingerprint) {
-        // Generar uno nuevo basado en características del navegador
-        const nav = navigator;
-        const screen = window.screen;
-        
-        const components = [
-            nav.userAgent,
-            nav.language,
-            screen.colorDepth,
-            screen.width + 'x' + screen.height,
-            new Date().getTimezoneOffset(),
-            !!window.sessionStorage,
-            !!window.localStorage
-        ];
-        
-        // Crear un hash simple (SIN Date.now() para que sea consistente)
-        const str = components.join('|');
-        let hash = 0;
-        for (let i = 0; i < str.length; i++) {
-            const char = str.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash = hash & hash;
-        }
-        
-        // Usar solo el hash, sin timestamp, para que sea permanente
-        fingerprint = 'fp_' + Math.abs(hash).toString(36);
-        
-        // Guardar de forma PERMANENTE en localStorage
-        localStorage.setItem('deviceFingerprint', fingerprint);
-        console.log('🆕 Nuevo device fingerprint generado:', fingerprint);
-    } else {
-        console.log('♻️ Usando device fingerprint existente:', fingerprint);
-    }
-    
-    return fingerprint;
+    // Usar la misma función que getDeviceFingerprint para consistencia
+    return getDeviceFingerprint();
 }
 
 // Inicializar event listener del formulario de login
@@ -5286,153 +6517,147 @@ function mostrarErrorLogin(mensaje) {
 async function restaurarSesion() {
     const token = localStorage.getItem('authToken');
     const userInfoStr = localStorage.getItem('userInfo');
+    const deviceFP = localStorage.getItem('deviceFingerprint');
     
-    console.log('🔍 Restaurando sesión...', { 
-        tieneToken: !!token, 
-        tieneUserInfo: !!userInfoStr 
-    });
+    console.log('🔍 Verificando sesión...');
+    console.log('  📱 Device Fingerprint en localStorage:', deviceFP);
     
-    if (token && userInfoStr) {
-        // Restaurar variables globales
-        authToken = token;
-        userInfo = JSON.parse(userInfoStr);
-        console.log('💾 Sesión restaurada desde localStorage:', userInfo);
-        
-        // Actualizar UI inmediatamente con datos de localStorage
-        if (userInfo.limites) {
-            const tokensInfo = document.getElementById('tokens-info');
-            if (tokensInfo) {
-                tokensInfo.textContent = `${(userInfo.limites.tokens_consumidos || 0).toLocaleString()} / ${(userInfo.limites.tokens_limite_mensual || 0).toLocaleString()} tokens`;
+    if (!token || !userInfoStr) {
+        console.log('ℹ️ No hay sesión guardada');
+        return;
+    }
+    
+    // Verificar inmediatamente si el token es válido
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/auth/verificar`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
             }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
             
-            const devicesInfo = document.getElementById('devices-info');
-            if (devicesInfo) {
-                devicesInfo.textContent = `${userInfo.limites.dispositivos_activos || 0} / ${userInfo.limites.dispositivos_limite || 0} dispositivos`;
-            }
-        }
-        
-        // Mostrar contenedor de auth-info
-        const authInfo = document.getElementById('auth-info');
-        if (authInfo) {
-            authInfo.style.display = 'flex';
-            console.log('✅ Contenedor auth-info mostrado');
-        }
-        
-        // Mostrar botón de historial
-        const btnHistorial = document.getElementById('tab-historial-btn');
-        if (btnHistorial) {
-            btnHistorial.style.display = 'inline-block';
-        }
-        
-        // Ocultar modal de login inmediatamente
-        const loginModal = document.getElementById('login-modal');
-        if (loginModal) {
-            loginModal.style.display = 'none';
-            console.log('✅ Modal de login ocultado');
-        }
-        
-        // Mostrar botón de logout con múltiples selectores
-        console.log('🔍 Buscando botón de logout...');
-        const btnLogout = document.querySelector('.btn-logout');
-        const btnLogout2 = document.querySelector('button.btn-logout');
-        const allButtons = document.querySelectorAll('button');
-        
-        console.log('Botón logout encontrado (querySelector):', btnLogout);
-        console.log('Botón logout encontrado (querySelector específico):', btnLogout2);
-        console.log('Total de botones en la página:', allButtons.length);
-        
-        if (btnLogout) {
-            btnLogout.style.setProperty('display', 'inline-flex', 'important');
-            btnLogout.style.visibility = 'visible';
-            btnLogout.style.opacity = '1';
-            
-            // Información de debugging
-            const rect = btnLogout.getBoundingClientRect();
-            console.log('✅ Botón logout mostrado, style:', btnLogout.style.display);
-            console.log('Computed style:', window.getComputedStyle(btnLogout).display);
-            console.log('Posición del botón:', {
-                top: rect.top,
-                left: rect.left,
-                width: rect.width,
-                height: rect.height,
-                visible: rect.top >= 0 && rect.left >= 0 && rect.top < window.innerHeight && rect.left < window.innerWidth
-            });
-            console.log('Padre del botón:', btnLogout.parentElement);
-            console.log('Estilos del padre:', window.getComputedStyle(btnLogout.parentElement));
-            
-            // Hacer scroll al botón para asegurarnos de que esté en pantalla
-            btnLogout.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        } else {
-            console.warn('⚠️ No se encontró el botón de logout con querySelector');
-            // Intentar buscar por onclick
-            const btnPorOnclick = Array.from(allButtons).find(btn => btn.onclick && btn.onclick.toString().includes('logout'));
-            if (btnPorOnclick) {
-                console.log('✅ Botón encontrado por onclick:', btnPorOnclick);
-                btnPorOnclick.style.display = 'inline-flex';
-            }
-        }
-        
-        // Si es admin, mostrar botón
-        if (userInfo.rol === 'admin') {
-            const btnAdmin = document.getElementById('btn-admin-panel');
-            if (btnAdmin) {
-                btnAdmin.style.display = 'inline-flex';
-                console.log('✅ Botón admin mostrado');
-            }
-        }
-        
-        // Verificar token en segundo plano (sin limpiar la UI si falla)
-        setTimeout(async () => {
-            try {
-                console.log('📡 Verificando validez del token...');
-                const response = await fetch(`${API_BASE_URL}/api/auth/verificar`, {
-                    method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
+            if (data.success) {
+                // Token válido - restaurar sesión
+                authToken = token;
+                userInfo = {
+                    usuario: data.usuario,
+                    empresa: data.empresa,
+                    plan: data.plan,
+                    limites: data.limites,
+                    rol: data.usuario.rol
+                };
                 
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log('✅ Token válido - sesión activa');
-                    
-                    // Actualizar userInfo con datos actualizados del servidor
-                    if (data.usuario) {
-                        userInfo = {
-                            ...data.usuario,
-                            empresa: data.empresa,
-                            plan: data.plan,
-                            limites: data.limites
-                        };
-                        localStorage.setItem('userInfo', JSON.stringify(userInfo));
-                    }
-                    
-                    // Actualizar información de tokens y dispositivos en la UI
-                    if (data.limites) {
-                        const tokensInfo = document.getElementById('tokens-info');
-                        if (tokensInfo) {
-                            tokensInfo.textContent = `${data.limites.tokens_consumidos.toLocaleString()} / ${data.limites.tokens_limite_mensual.toLocaleString()} tokens`;
-                        }
-                        
-                        const devicesInfo = document.getElementById('devices-info');
-                        if (devicesInfo) {
-                            devicesInfo.textContent = `${data.limites.dispositivos_activos} / ${data.limites.dispositivos_limite} dispositivos`;
-                        }
-                    }
-                } else {
-                    console.log('⚠️ Token inválido (status: ' + response.status + ') - se pedirá login al intentar una acción');
-                    // NO limpiar la sesión aquí, solo marcar que necesita re-login
-                    // La UI sigue mostrando los datos de localStorage
-                }
-            } catch (error) {
-                console.log('⚠️ Error verificando token:', error.message);
-                // No hacer nada, dejar que funcione con los datos de localStorage
+                // Guardar datos actualizados
+                localStorage.setItem('userInfo', JSON.stringify(userInfo));
+                
+                console.log('✅ Sesión válida restaurada');
+                
+                // Actualizar UI
+                actualizarUIConSesion();
+                
+            } else {
+                // Token inválido - limpiar sesión silenciosamente
+                console.log('🔒 Sesión inválida - limpiando');
+                limpiarSesionSilenciosamente();
             }
-        }, 500);
+        } else {
+            // Error de autenticación - limpiar sesión
+            console.log('🔒 Sesión expirada - limpiando');
+            limpiarSesionSilenciosamente();
+        }
+    } catch (error) {
+        console.error('❌ Error verificando sesión:', error);
+        // En caso de error de red, limpiar sesión por seguridad
+        limpiarSesionSilenciosamente();
+    }
+}
+
+// Actualizar UI cuando hay sesión válida
+function actualizarUIConSesion() {
+    // Actualizar información de tokens y dispositivos
+    if (userInfo.limites) {
+        const tokensInfo = document.getElementById('tokens-info');
+        if (tokensInfo) {
+            tokensInfo.textContent = `${userInfo.limites.tokens_consumidos.toLocaleString()} / ${userInfo.limites.tokens_limite_mensual.toLocaleString()} tokens`;
+        }
         
-    } else {
-        console.log('ℹ️ No hay sesión guardada, mostrando login');
+        const devicesInfo = document.getElementById('devices-info');
+        if (devicesInfo) {
+            devicesInfo.textContent = `${userInfo.limites.dispositivos_activos} / ${userInfo.limites.dispositivos_limite} dispositivos`;
+        }
+    }
+    
+    // Mostrar contenedor de auth-info
+    const authInfo = document.getElementById('auth-info');
+    if (authInfo) {
+        authInfo.style.display = 'flex';
+    }
+    
+    // Mostrar botón de historial
+    const btnHistorial = document.getElementById('tab-historial-btn');
+    if (btnHistorial) {
+        btnHistorial.style.display = 'inline-block';
+    }
+    
+    // Mostrar botón de configuración
+    const btnConfig = document.getElementById('tab-config-btn');
+    if (btnConfig) {
+        btnConfig.style.display = 'inline-block';
+    }
+    
+    // Ocultar modal de login
+    const loginModal = document.getElementById('login-modal');
+    if (loginModal) {
+        loginModal.style.display = 'none';
+    }
+    
+    // Mostrar botón de logout
+    const btnLogout = document.querySelector('.btn-logout');
+    if (btnLogout) {
+        btnLogout.style.setProperty('display', 'inline-flex', 'important');
+        btnLogout.style.visibility = 'visible';
+        btnLogout.style.opacity = '1';
+    }
+    
+    // Si es admin, mostrar botón de panel
+    if (userInfo.rol === 'admin') {
+        const btnAdmin = document.getElementById('btn-admin-panel');
+        if (btnAdmin) {
+            btnAdmin.style.display = 'inline-flex';
+        }
+    }
+}
+
+// Limpiar sesión silenciosamente sin mostrar notificaciones
+function limpiarSesionSilenciosamente() {
+    authToken = null;
+    userInfo = null;
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('userInfo');
+    
+    // Ocultar elementos de sesión
+    const authInfo = document.getElementById('auth-info');
+    if (authInfo) {
+        authInfo.style.display = 'none';
+    }
+    
+    const btnHistorial = document.getElementById('tab-historial-btn');
+    if (btnHistorial) {
+        btnHistorial.style.display = 'none';
+    }
+    
+    const btnLogout = document.querySelector('.btn-logout');
+    if (btnLogout) {
+        btnLogout.style.display = 'none';
+    }
+    
+    const btnAdmin = document.getElementById('btn-admin-panel');
+    if (btnAdmin) {
+        btnAdmin.style.display = 'none';
     }
 }
 
@@ -5520,3 +6745,107 @@ function mostrarNotificacion(mensaje, tipo = 'info') {
         }, 300);
     }, 4000);
 }
+
+// ==================== CONFIGURACIÓN DE EMPRESA ====================
+
+// Cargar configuración de defaults desde la base de datos
+async function cargarDefaults() {
+    if (!authToken) {
+        showNotification('Debes iniciar sesión para ver la configuración', 'warning');
+        return;
+    }
+
+    try {
+        console.log('📋 Cargando configuración de empresa...');
+        
+        const response = await fetchConAuth(API_BASE_URL + '/api/config/defaults', {
+            headers: {
+                'Authorization': 'Bearer ' + authToken
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('Error al cargar configuración');
+        }
+
+        const data = await response.json();
+
+        if (data.success) {
+            const defaults = data.defaults;
+            console.log('✅ Configuración cargada:', defaults);
+
+            document.getElementById('default-clearance-type').value = defaults.ClearanceType || '';
+            document.getElementById('default-regimen-code').value = defaults.RegimenCode || '';
+            document.getElementById('default-area-code').value = defaults.AreaCode || '';
+            document.getElementById('default-importer-code').value = defaults.ImporterCode || '';
+            document.getElementById('default-importer-name').value = defaults.ImporterName || '';
+            document.getElementById('default-declarant-code').value = defaults.DeclarantCode || '';
+            document.getElementById('default-declarant-name').value = defaults.DeclarantName || '';
+            document.getElementById('default-transport-mode').value = defaults.TransportMode || '';
+            document.getElementById('default-country-dispatch').value = defaults.CountryDispatch || '';
+            document.getElementById('default-country-origin').value = defaults.CountryOrigin || '';
+            document.getElementById('default-payment-method').value = defaults.PaymentMethod || '';
+            document.getElementById('default-incoterm').value = defaults.Incoterm || '';
+            document.getElementById('default-currency').value = defaults.Currency || 'USD';
+
+            showNotification('Configuración cargada correctamente', 'success');
+        } else {
+            showNotification('Error al cargar configuración', 'error');
+        }
+    } catch (error) {
+        console.error('Error cargando defaults:', error);
+        showNotification('Error de conexión al cargar configuración', 'error');
+    }
+}
+
+async function guardarDefaults(event) {
+    event.preventDefault();
+    if (!authToken) {
+        showNotification('Debes iniciar sesión para guardar configuración', 'warning');
+        return;
+    }
+    try {
+        const defaults = {
+            ClearanceType: document.getElementById('default-clearance-type').value.trim(),
+            RegimenCode: document.getElementById('default-regimen-code').value.trim(),
+            AreaCode: document.getElementById('default-area-code').value.trim(),
+            ImporterCode: document.getElementById('default-importer-code').value.trim(),
+            ImporterName: document.getElementById('default-importer-name').value.trim(),
+            DeclarantCode: document.getElementById('default-declarant-code').value.trim(),
+            DeclarantName: document.getElementById('default-declarant-name').value.trim(),
+            TransportMode: document.getElementById('default-transport-mode').value,
+            CountryDispatch: document.getElementById('default-country-dispatch').value.trim().toUpperCase(),
+            CountryOrigin: document.getElementById('default-country-origin').value.trim().toUpperCase(),
+            PaymentMethod: document.getElementById('default-payment-method').value,
+            Incoterm: document.getElementById('default-incoterm').value,
+            Currency: document.getElementById('default-currency').value.trim().toUpperCase()
+        };
+        Object.keys(defaults).forEach(key => {
+            if (!defaults[key]) delete defaults[key];
+        });
+        const response = await fetchConAuth(API_BASE_URL + '/api/config/defaults', {
+            method: 'PUT',
+            headers: {
+                'Authorization': 'Bearer ' + authToken,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(defaults)
+        });
+        const data = await response.json();
+        if (data.success) {
+            showNotification('✅ Configuración guardada correctamente', 'success');
+        } else {
+            showNotification(data.mensaje || 'Error al guardar configuración', 'error');
+        }
+    } catch (error) {
+        console.error('Error guardando defaults:', error);
+        showNotification(error.message || 'Error al guardar configuración', 'error');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const defaultsForm = document.getElementById('defaults-form');
+    if (defaultsForm) {
+        defaultsForm.addEventListener('submit', guardarDefaults);
+    }
+});

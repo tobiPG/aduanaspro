@@ -97,6 +97,10 @@ function showSection(section) {
         'historial': {
             title: 'Historial de Clasificaciones',
             subtitle: 'Todas las clasificaciones del sistema'
+        },
+        'sesiones': {
+            title: 'Gestión de Sesiones',
+            subtitle: 'Monitorea y administra las sesiones activas'
         }
     };
     
@@ -119,6 +123,9 @@ function showSection(section) {
             break;
         case 'historial':
             cargarHistorialAdmin();
+            break;
+        case 'sesiones':
+            cargarSesionesActivas();
             break;
     }
 }
@@ -1412,4 +1419,151 @@ async function cargarResultadoParaDescarga(clasificacionId) {
     } catch (error) {
         console.error('Error cargando resultado:', error);
     }
+}
+
+// ==================== GESTIÓN DE SESIONES ====================
+
+async function cargarSesionesActivas() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/admin/sesiones/activas`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // Actualizar estadísticas
+            document.getElementById('stat-sesiones-activas').textContent = data.total;
+            
+            // Contar usuarios únicos
+            const usuariosUnicos = new Set(data.sesiones.map(s => s.usuario_correo)).size;
+            document.getElementById('stat-usuarios-conectados').textContent = usuariosUnicos;
+            
+            // Contar IPs únicas
+            const ipsUnicas = new Set(data.sesiones.map(s => s.ip)).size;
+            document.getElementById('stat-ips-unicas').textContent = ipsUnicas;
+            
+            // Renderizar tabla
+            const tbody = document.getElementById('table-sesiones-activas');
+            
+            if (data.sesiones.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">No hay sesiones activas</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = data.sesiones.map(sesion => {
+                const fechaLogin = new Date(sesion.ts_login);
+                const ultimaActividad = new Date(sesion.ts_ultima_actividad);
+                const tiempoActivo = calcularTiempoActivo(sesion.ts_login);
+                
+                return `
+                    <tr>
+                        <td>
+                            <div class="user-cell">
+                                <strong>${sesion.usuario_nombre}</strong>
+                                <span class="user-email">${sesion.usuario_correo}</span>
+                            </div>
+                        </td>
+                        <td>${sesion.empresa_nombre}</td>
+                        <td><code>${sesion.ip}</code></td>
+                        <td>${formatearFecha(fechaLogin)}</td>
+                        <td>${formatearFecha(ultimaActividad)}</td>
+                        <td><span class="badge badge-info">${tiempoActivo}</span></td>
+                        <td>
+                            <button class="btn-icon btn-danger" onclick="cerrarSesion('${sesion.sesion_id}')" title="Cerrar sesión">
+                                <i class="fas fa-power-off"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        } else {
+            showNotification('Error al cargar sesiones', 'error');
+        }
+    } catch (error) {
+        console.error('Error cargando sesiones activas:', error);
+        showNotification('Error de conexión', 'error');
+    }
+}
+
+async function confirmarCerrarTodasSesiones() {
+    if (!confirm('¿Estás seguro de cerrar TODAS las sesiones activas?\n\nEsto cerrará la sesión de todos los usuarios (excepto la tuya) y tendrán que volver a iniciar sesión.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/admin/sesiones/limpiar-todas`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification(`✅ ${data.mensaje}`, 'success');
+            await cargarSesionesActivas(); // Recargar lista
+        } else {
+            showNotification('Error al cerrar sesiones', 'error');
+        }
+    } catch (error) {
+        console.error('Error cerrando todas las sesiones:', error);
+        showNotification('Error de conexión', 'error');
+    }
+}
+
+async function cerrarSesion(sesionId) {
+    if (!confirm('¿Cerrar esta sesión?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/admin/sesiones/${sesionId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification('Sesión cerrada exitosamente', 'success');
+            await cargarSesionesActivas(); // Recargar lista
+        } else {
+            showNotification(data.mensaje || 'Error al cerrar sesión', 'error');
+        }
+    } catch (error) {
+        console.error('Error cerrando sesión:', error);
+        showNotification('Error de conexión', 'error');
+    }
+}
+
+function calcularTiempoActivo(tsLogin) {
+    const ahora = new Date();
+    const login = new Date(tsLogin);
+    const diff = ahora - login;
+    
+    const horas = Math.floor(diff / 3600000);
+    const minutos = Math.floor((diff % 3600000) / 60000);
+    
+    if (horas > 0) {
+        return `${horas}h ${minutos}m`;
+    } else {
+        return `${minutos}m`;
+    }
+}
+
+function formatearFecha(fecha) {
+    return fecha.toLocaleString('es-DO', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
 }

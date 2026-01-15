@@ -38,6 +38,10 @@
                     <i class="fas fa-history"></i>
                     <span>Historial</span>
                 </a>
+                <a href="#" class="nav-item" onclick="showSection('sesiones')">
+                    <i class="fas fa-user-clock"></i>
+                    <span>Sesiones</span>
+                </a>
             </nav>
             
             <div class="sidebar-footer">
@@ -337,6 +341,68 @@
 
                 <div id="historial-pagination" class="pagination-controls" style="margin-top: 20px; text-align: center;">
                     <!-- Paginación se agregará dinámicamente -->
+                </div>
+            </section>
+
+            <!-- Sesiones Section -->
+            <section id="section-sesiones" class="content-section">
+                <div class="section-toolbar">
+                    <div class="toolbar-left">
+                        <h3>Gestión de Sesiones Activas</h3>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn-danger" onclick="confirmarCerrarTodasSesiones()">
+                            <i class="fas fa-power-off"></i> Cerrar Todas las Sesiones
+                        </button>
+                        <button class="btn-primary" onclick="cargarSesionesActivas()">
+                            <i class="fas fa-sync-alt"></i> Actualizar
+                        </button>
+                    </div>
+                </div>
+
+                <div class="stats-row" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px;">
+                    <div class="stat-mini">
+                        <i class="fas fa-user-clock"></i>
+                        <div>
+                            <span class="stat-mini-label">Sesiones Activas</span>
+                            <span class="stat-mini-value" id="stat-sesiones-activas">0</span>
+                        </div>
+                    </div>
+                    <div class="stat-mini">
+                        <i class="fas fa-users"></i>
+                        <div>
+                            <span class="stat-mini-label">Usuarios Conectados</span>
+                            <span class="stat-mini-value" id="stat-usuarios-conectados">0</span>
+                        </div>
+                    </div>
+                    <div class="stat-mini">
+                        <i class="fas fa-globe"></i>
+                        <div>
+                            <span class="stat-mini-label">IPs Únicas</span>
+                            <span class="stat-mini-value" id="stat-ips-unicas">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Usuario</th>
+                                <th>Empresa</th>
+                                <th>IP</th>
+                                <th>Inicio Sesión</th>
+                                <th>Última Actividad</th>
+                                <th>Tiempo Activo</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-sesiones-activas">
+                            <tr>
+                                <td colspan="7" class="loading-cell">Cargando...</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </section>
         </main>

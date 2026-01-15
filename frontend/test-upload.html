@@ -167,16 +167,24 @@
                     method: 'POST',
                     body: formData
                 });
-                
                 const result = await response.json();
-                
                 document.getElementById('loading').style.display = 'none';
-                
+                // Mostrar info de batch si aplica
+                let batchInfo = '';
+                if (result.data && result.data.ImpDeclarationProduct && Array.isArray(result.data.ImpDeclarationProduct)) {
+                    const totalItems = result.data.ImpDeclarationProduct.length;
+                    if (totalItems > 10) {
+                        const numBatches = Math.ceil(totalItems / 10);
+                        batchInfo = `\n⚡ Procesando en batch: ${numBatches} lotes de 10 items (total: ${totalItems})`;
+                    } else {
+                        batchInfo = `\nProcesamiento normal: ${totalItems} items`;
+                    }
+                }
                 if (result.success) {
                     resultadoActual = result.data;
-                    mostrarResultado(result);
+                    mostrarResultado(result, batchInfo);
                 } else {
-                    mostrarError(result.error || 'Error desconocido');
+                    mostrarError((result.error || 'Error desconocido') + batchInfo);
                 }
             } catch (error) {
                 document.getElementById('loading').style.display = 'none';
@@ -186,16 +194,17 @@
             }
         }
         
-        function mostrarResultado(result) {
+        function mostrarResultado(result, batchInfo = '') {
             const resultDiv = document.getElementById('resultado');
             const titleDiv = document.getElementById('resultTitle');
             const contentDiv = document.getElementById('resultContent');
-            
-            titleDiv.innerHTML = '✅ <span class="success">Clasificación Exitosa</span>';
+            let info = '';
+            if (batchInfo) {
+                info = `<div style="margin-bottom:8px;color:#6366f1;font-weight:bold;">${batchInfo}</div>`;
+            }
+            titleDiv.innerHTML = '✅ <span class="success">Clasificación Exitosa</span>' + info;
             contentDiv.textContent = JSON.stringify(result.data, null, 2);
-            
             resultDiv.style.display = 'block';
-            
             // Mostrar botón de XML solo si hay estructura completa
             if (result.data.ImpDeclaration || result.data.ImpDeclarationProduct) {
                 document.getElementById('btnXML').style.display = 'block';

@@ -154,14 +154,25 @@ async function verificarSesion() {
             updateAuthUI();
             return true;
         } else {
-            logout();
+            // Sesión inválida - limpiar y pedir login
+            await limpiarSesionSilenciosamente();
             return false;
         }
     } catch (error) {
         console.error('Error verificando sesión:', error);
-        logout();
+        await limpiarSesionSilenciosamente();
         return false;
     }
+}
+
+// Limpiar sesión sin mostrar notificación (para casos de sesión expirada al recargar)
+async function limpiarSesionSilenciosamente() {
+    authToken = null;
+    userInfo = null;
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('userInfo');
+    showLoginModal();
+    updateAuthUI();
 }
 
 // Actualizar UI con info del usuario
