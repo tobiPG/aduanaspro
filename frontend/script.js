@@ -1,13 +1,16 @@
 // Configuración de la API
 const API_BASE_URL = 'http://127.0.0.1:3050';
 
-// Estado global
-let resultadoActual = null;
+// Estado global - usar window directamente para sincronizar entre scripts
+window.resultadoActual = null;
 let archivoSeleccionado = null;
 let editedClassification = null; // Para almacenar la clasificación editada
 let currentEditingIndex = null; // Índice del producto que se está editando
 let authToken = localStorage.getItem('authToken'); // Token de autenticación
 let userInfo = null; // Información del usuario logueado
+
+// Alias local para compatibilidad
+let resultadoActual = window.resultadoActual;
 
 // Función helper para fetch con manejo automático de errores de autenticación
 async function fetchConAuth(url, options = {}) {
@@ -133,7 +136,11 @@ window.guardarJSON = function() {
         resultadoActual = parsedJSON;
         editedClassification = parsedJSON;
         
-        console.log('✅ resultadoActual actualizado:', resultadoActual);
+        // IMPORTANTE: Sincronizar con window.resultadoActual
+        window.resultadoActual = parsedJSON;
+        window.editedClassification = parsedJSON;
+        
+        console.log('✅ resultadoActual actualizado y sincronizado:', resultadoActual);
         
         showNotification('✅ JSON guardado correctamente. Ahora puedes descargar el XML con estos datos.', 'success');
         
@@ -374,8 +381,17 @@ window.guardarCampoDirecto = function(fieldKey, fieldLabel, parentElement) {
     resultadoActual.editado = true;
     resultadoActual.fecha_edicion = new Date().toISOString();
     
+    // IMPORTANTE: Sincronizar con window.resultadoActual
+    window.resultadoActual = resultadoActual;
+    
+    // También actualizar editedClassification
+    if (typeof window.editedClassification !== 'undefined') {
+        window.editedClassification = resultadoActual;
+    }
+    
     console.log('📊 JSON DESPUÉS:', JSON.stringify(resultadoActual, null, 2));
     console.log(`🔍 Verificación: resultadoActual.${fieldKey} =`, resultadoActual[fieldKey]);
+    console.log('📊 Sincronizado con window.resultadoActual');
     
     // Actualizar el visor JSON completo
     const jsonViewerDisplay = document.getElementById('json-viewer-display');
@@ -766,6 +782,9 @@ async function verDetalleClasificacion(clasificacionId) {
             };
         }
         
+        // IMPORTANTE: Sincronizar con window.resultadoActual
+        window.resultadoActual = resultadoActual;
+        
         clasificacionIdActual = clasificacionId;
         console.log('📦 resultadoActual final:', resultadoActual);
         
@@ -985,6 +1004,9 @@ async function editarResultadoHistorial(clasificacionId) {
                         nombre_archivo: clf.nombre_archivo
                     };
                     
+                    // IMPORTANTE: Sincronizar con window.resultadoActual
+                    window.resultadoActual = resultadoActual;
+                    
                     console.log('✅ Datos recargados desde servidor:', resultadoActual);
                 }
             }
@@ -1020,6 +1042,8 @@ async function editarResultadoHistorial(clasificacionId) {
     setTimeout(() => {
         // Restaurar y mostrar resultado con el nuevo formato moderno
         resultadoActual = resultadoParaMostrar;
+        // IMPORTANTE: Sincronizar con window.resultadoActual
+        window.resultadoActual = resultadoActual;
         showResults(resultadoActual, null);
         
         // Scroll a resultados
@@ -1156,6 +1180,8 @@ function hideLoading() {
 function showResults(data, tokensInfo = null) {
     hideLoading();
     resultadoActual = data;
+    // IMPORTANTE: Sincronizar con window.resultadoActual
+    window.resultadoActual = data;
     console.log('📥 Clasificación recibida y guardada en memoria:', resultadoActual);
     
     const resultsDiv = document.getElementById('results');
@@ -1729,6 +1755,10 @@ function hideResults() {
         resultsDiv.style.display = 'none';
     }
     resultadoActual = null;
+    // IMPORTANTE: Sincronizar con window.resultadoActual
+    window.resultadoActual = null;
+    // Limpiar productos originales para nueva clasificación
+    window._productosOriginales = null;
 }
 
 function showError(message) {
@@ -3056,6 +3086,8 @@ function procesarResultadoClasificacion(result, soloHS) {
     
     // Guardar el resultado en la variable global
     resultadoActual = result.data;
+    // IMPORTANTE: Sincronizar con window.resultadoActual
+    window.resultadoActual = result.data;
     
     // Si es modo solo_hs, mostrar solo el código
     if (soloHS && result.data.hs) {
@@ -4706,6 +4738,10 @@ function validateAndSave() {
         console.log('✅ Producto único actualizado');
     }
     
+    // IMPORTANTE: Sincronizar con window.resultadoActual
+    window.resultadoActual = resultadoActual;
+    window.editedClassification = editedClassification;
+    
     console.log('📊 resultadoActual después de editar:', resultadoActual);
     
     // Actualizar la vista de resultados
@@ -4892,12 +4928,69 @@ function createEditedResultCard(data) {
 // Función mejorada de exportación para ImportDUA
 async function showExportOptions() {
     console.log('📤 Iniciando exportación ImportDUA...');
-    console.log('📊 JSON a exportar:', JSON.stringify(resultadoActual, null, 2));
+    
+    // IMPORTANTE: Sincronizar variables antes de exportar
+    // Usar window.resultadoActual como fuente de verdad
+    if (window.resultadoActual) {
+        resultadoActual = window.resultadoActual;
+    }
     
     if (!resultadoActual) {
         showNotification('No hay datos para exportar', 'error');
         return;
     }
+    
+    // CRÍTICO: Asegurar que los productos tengan todos los campos originales de la API
+    // Los campos de la API son: Description, Quantity, UnitPriceUSD, AmountUSD, Unit
+    // El XML espera: ProductName, Qty, FOBValue, UnitCode
+    
+    const productosOriginales = window._productosOriginales || [];
+    const productosActuales = window.productosClasificados || resultadoActual.ImpDeclarationProduct || [];
+    
+    console.log('📦 Preparando productos para exportación:');
+    console.log('   - Productos originales (_productosOriginales):', productosOriginales.length);
+    console.log('   - Productos actuales (productosClasificados):', productosActuales.length);
+    
+    if (productosOriginales.length > 0 && productosOriginales[0]) {
+        console.log('   - Campos del primer producto original:', Object.keys(productosOriginales[0]));
+    }
+    
+    // Fusionar productos: originales + actuales (actuales tienen prioridad)
+    resultadoActual.ImpDeclarationProduct = productosActuales.map((productoActual, idx) => {
+        // Limpiar propiedades internas
+        const { _index, _isManual, ...productoLimpio } = productoActual;
+        
+        // Obtener producto original correspondiente
+        const productoOriginalRaw = productosOriginales[idx] || {};
+        const { _index: _oi, _isManual: _om, ...productoOriginal } = productoOriginalRaw;
+        
+        // FUSIÓN FINAL: original + actual
+        const productoFinal = {
+            ...productoOriginal,  // Campos originales de la API
+            ...productoLimpio     // Campos editados (tienen prioridad)
+        };
+        
+        // Debug: verificar si faltan campos importantes
+        if (idx >= productosActuales.length - 5) { // Solo los últimos 5
+            const tieneNombre = productoFinal.ProductName || productoFinal.Description;
+            const tieneValor = productoFinal.FOBValue || productoFinal.UnitPriceUSD || productoFinal.AmountUSD;
+            if (!tieneNombre || !tieneValor) {
+                console.warn(`⚠️ Producto ${idx + 1} incompleto:`, {
+                    ProductName: productoFinal.ProductName,
+                    Description: productoFinal.Description,
+                    FOBValue: productoFinal.FOBValue,
+                    UnitPriceUSD: productoFinal.UnitPriceUSD,
+                    camposOriginal: Object.keys(productoOriginal),
+                    camposActual: Object.keys(productoLimpio)
+                });
+            }
+        }
+        
+        return productoFinal;
+    });
+    
+    console.log('📦 Productos fusionados:', resultadoActual.ImpDeclarationProduct.length);
+    console.log('📊 JSON a exportar:', JSON.stringify(resultadoActual, null, 2).substring(0, 1000) + '...');
     
     // Validar campos obligatorios antes de exportar
     const erroresValidacion = validarCamposObligatoriosSIGA(resultadoActual);
@@ -4957,71 +5050,166 @@ function validarCamposObligatoriosSIGA(jsonData) {
     const errores = [];
     const data = jsonData.ImportDUA?.ImpDeclaration || jsonData;
     
-    // Validar ClearanceType con formato
-    if (!data.ClearanceType || data.ClearanceType.trim() === '') {
+    console.log('🔎 Validando datos para SIGA...');
+    
+    // ========== CAMPOS OBLIGATORIOS DE LA DECLARACIÓN ==========
+    
+    // ClearanceType
+    if (!data.ClearanceType || data.ClearanceType.toString().trim() === '') {
         errores.push('• ClearanceType es obligatorio (ej: IC38-002)');
-    } else if (!/^IC\d{2}-\d{3}$/.test(data.ClearanceType)) {
-        errores.push('• ClearanceType debe tener formato IC##-### (ej: IC38-002, IC04-001)');
     }
     
-    // Validar ImporterCode con formato RNC
-    if (!data.ImporterCode || data.ImporterCode.trim() === '') {
-        errores.push('• ImporterCode es obligatorio (debe comenzar con RNC)');
-    } else if (!data.ImporterCode.startsWith('RNC')) {
-        errores.push('• ImporterCode debe comenzar con RNC seguido de números');
-    } else if (!/^RNC\d+$/.test(data.ImporterCode)) {
-        errores.push('• ImporterCode debe tener formato RNC seguido de números (ej: RNC214101830141)');
+    // AreaCode
+    if (!data.AreaCode || data.AreaCode.toString().trim() === '') {
+        errores.push('• AreaCode es obligatorio (ej: 10150)');
     }
     
-    // Validar DeclarantCode con formato RNC
-    if (!data.DeclarantCode || data.DeclarantCode.trim() === '') {
-        errores.push('• DeclarantCode es obligatorio (debe comenzar con RNC)');
-    } else if (!data.DeclarantCode.startsWith('RNC')) {
-        errores.push('• DeclarantCode debe comenzar con RNC seguido de números');
-    } else if (!/^RNC\d+$/.test(data.DeclarantCode)) {
-        errores.push('• DeclarantCode debe tener formato RNC seguido de números (ej: RNC214101830141)');
+    // FormNo
+    if (!data.FormNo || data.FormNo.toString().trim() === '') {
+        errores.push('• FormNo es obligatorio (ej: 39155)');
     }
     
-    // Validar RegimenCode
+    // BLNo
+    if (!data.BLNo || data.BLNo.toString().trim() === '') {
+        errores.push('• BLNo es obligatorio (usar PRELIQUIDACION si no tiene)');
+    }
+    
+    // ConsigneeCode
+    if (!data.ConsigneeCode || data.ConsigneeCode.toString().trim() === '') {
+        errores.push('• ConsigneeCode es obligatorio (ej: RNC214101830141)');
+    }
+    
+    // ConsigneeName
+    if (!data.ConsigneeName || data.ConsigneeName.toString().trim() === '') {
+        errores.push('• ConsigneeName es obligatorio');
+    }
+    
+    // ImporterCode
+    if (!data.ImporterCode || data.ImporterCode.toString().trim() === '') {
+        errores.push('• ImporterCode es obligatorio (ej: RNC214101830141)');
+    }
+    
+    // ImporterName
+    if (!data.ImporterName || data.ImporterName.toString().trim() === '') {
+        errores.push('• ImporterName es obligatorio');
+    }
+    
+    // DeclarantCode
+    if (!data.DeclarantCode || data.DeclarantCode.toString().trim() === '') {
+        errores.push('• DeclarantCode es obligatorio (ej: RNC214101830141)');
+    }
+    
+    // DeclarantName
+    if (!data.DeclarantName || data.DeclarantName.toString().trim() === '') {
+        errores.push('• DeclarantName es obligatorio');
+    }
+    
+    // RegimenCode
     if (!data.RegimenCode || data.RegimenCode.toString().trim() === '') {
-        errores.push('• RegimenCode es obligatorio (ej: 1, 4, 70)');
-    } else if (!/^\d+$/.test(data.RegimenCode.toString())) {
-        errores.push('• RegimenCode debe ser un número entero (ej: 1, 4, 70)');
+        errores.push('• RegimenCode es obligatorio (ej: 1)');
     }
     
-    // Validar campos numéricos decimales
+    // Valores numéricos obligatorios
     if (data.TotalFOB === undefined || data.TotalFOB === null || data.TotalFOB === '') {
         errores.push('• TotalFOB es obligatorio (formato: 90513.5000)');
     }
     
     if (data.InsuranceValue === undefined || data.InsuranceValue === null || data.InsuranceValue === '') {
-        errores.push('• InsuranceValue es obligatorio (usar 0.00 si no aplica)');
+        errores.push('• InsuranceValue es obligatorio (usar 0 si no aplica)');
     }
     
     if (data.FreightValue === undefined || data.FreightValue === null || data.FreightValue === '') {
-        errores.push('• FreightValue es obligatorio (usar 0.00 si no aplica)');
+        errores.push('• FreightValue es obligatorio (usar 0 si no aplica)');
     }
     
-    // Validar productos
+    if (data.OtherValue === undefined || data.OtherValue === null || data.OtherValue === '') {
+        errores.push('• OtherValue es obligatorio (usar 0.0000 si no aplica)');
+    }
+    
+    if (data.TotalCIF === undefined || data.TotalCIF === null || data.TotalCIF === '') {
+        errores.push('• TotalCIF es obligatorio (TotalFOB + Insurance + Freight + Other)');
+    }
+    
+    // ========== PROVEEDOR OBLIGATORIO ==========
+    const supplier = data.ImpDeclarationSupplier || {};
+    
+    if (!supplier.ForeignSupplierName || supplier.ForeignSupplierName.toString().trim() === '') {
+        errores.push('• ForeignSupplierName es obligatorio');
+    }
+    
+    if (!supplier.ForeignSupplierCode || supplier.ForeignSupplierCode.toString().trim() === '') {
+        errores.push('• ForeignSupplierCode es obligatorio (ej: TID724C103085)');
+    }
+    
+    if (!supplier.ForeignSupplierNationality || supplier.ForeignSupplierNationality.toString().trim() === '') {
+        errores.push('• ForeignSupplierNationality es obligatorio (código país, ej: 724)');
+    }
+    
+    // ========== PRODUCTOS OBLIGATORIOS ==========
     const products = data.ImpDeclarationProduct || [];
+    
+    if (products.length === 0) {
+        errores.push('• Debe haber al menos un producto');
+    }
+    
     products.forEach((product, index) => {
-        const productNum = index + 1;
+        const num = index + 1;
         
-        if (!product.ProductStatusCode || product.ProductStatusCode.trim() === '') {
-            errores.push(`• Producto ${productNum}: ProductStatusCode es obligatorio (ej: IC04-001)`);
+        // HSCode
+        if (!product.HSCode || product.HSCode.toString().trim() === '') {
+            errores.push(`• Producto ${num}: HSCode es obligatorio`);
         }
         
-        // Validar booleanos
-        if (product.TempProductYN !== 'true' && product.TempProductYN !== 'false' && 
-            product.TempProductYN !== true && product.TempProductYN !== false) {
-            errores.push(`• Producto ${productNum}: TempProductYN debe ser true o false`);
+        // ProductName
+        const nombre = product.ProductName || product.Description;
+        if (!nombre || nombre.toString().trim() === '') {
+            errores.push(`• Producto ${num}: ProductName es obligatorio`);
         }
         
-        if (product.OrganicYN !== 'true' && product.OrganicYN !== 'false' && 
-            product.OrganicYN !== true && product.OrganicYN !== false) {
-            errores.push(`• Producto ${productNum}: OrganicYN debe ser true o false`);
+        // ProductStatusCode
+        if (!product.ProductStatusCode || product.ProductStatusCode.toString().trim() === '') {
+            errores.push(`• Producto ${num}: ProductStatusCode es obligatorio (ej: IC04-001)`);
+        }
+        
+        // FOBValue
+        const fob = product.FOBValue ?? product.UnitPriceUSD ?? product.AmountUSD;
+        if (fob === undefined || fob === null || fob === '') {
+            errores.push(`• Producto ${num}: FOBValue es obligatorio`);
+        }
+        
+        // UnitCode
+        if (!product.UnitCode && !product.Unit) {
+            errores.push(`• Producto ${num}: UnitCode es obligatorio (ej: 8)`);
+        }
+        
+        // Qty
+        const qty = product.Qty ?? product.Quantity;
+        if (qty === undefined || qty === null || qty === '') {
+            errores.push(`• Producto ${num}: Qty es obligatorio`);
+        }
+        
+        // Weight
+        if (product.Weight === undefined || product.Weight === null || product.Weight === '') {
+            errores.push(`• Producto ${num}: Weight es obligatorio (usar 1 si no tiene)`);
+        }
+        
+        // OriginCountry
+        if (!product.OriginCountry || product.OriginCountry.toString().trim() === '') {
+            errores.push(`• Producto ${num}: OriginCountry es obligatorio (código país, ej: 724)`);
+        }
+        
+        // TempProductYN
+        if (product.TempProductYN === undefined || product.TempProductYN === null || product.TempProductYN === '') {
+            errores.push(`• Producto ${num}: TempProductYN debe ser true o false`);
+        }
+        
+        // OrganicYN
+        if (product.OrganicYN === undefined || product.OrganicYN === null || product.OrganicYN === '') {
+            errores.push(`• Producto ${num}: OrganicYN debe ser true o false`);
         }
     });
+    
+    console.log('📋 Errores de validación:', errores.length > 0 ? errores : 'Sin errores');
     
     return errores;
 }
@@ -5732,6 +5920,10 @@ function saveManualClassification() {
     resultadoActual = duaData;
     editedClassification = duaData;
     
+    // IMPORTANTE: Sincronizar con window.resultadoActual
+    window.resultadoActual = duaData;
+    window.editedClassification = duaData;
+    
     // Crear vista de resultado DUA
     showDUAResult(duaData);
     
@@ -5966,18 +6158,40 @@ function mostrarPanelValidacion(errores) {
     // Limpiar errores anteriores
     erroresContainer.innerHTML = '';
     
-    // Mapeo de campos a los data-field-key en la vista de resultados
-    const campoToFieldKey = {
-        'ClearanceType': 'ClearanceType',
-        'ImporterCode': 'ImporterCode',
-        'DeclarantCode': 'DeclarantCode',
-        'RegimenCode': 'RegimenCode',
-        'TotalFOB': 'TotalFOB',
-        'InsuranceValue': 'InsuranceValue',
-        'FreightValue': 'FreightValue',
-        'ProductStatusCode': 'ProductStatusCode',
-        'TempProductYN': 'TempProductYN',
-        'OrganicYN': 'OrganicYN'
+    // Mapeo de campos a nombres legibles con formato XML
+    const campoInfo = {
+        // Campos generales de declaración (obligatorios)
+        'ClearanceType': { label: 'Tipo de Declaración', xml: 'ClearanceType', isGeneral: true },
+        'AreaCode': { label: 'Código de Área', xml: 'AreaCode', isGeneral: true },
+        'FormNo': { label: 'Número de Formulario', xml: 'FormNo', isGeneral: true },
+        'BLNo': { label: 'Número B/L', xml: 'BLNo', isGeneral: true },
+        'ConsigneeCode': { label: 'RNC Consignatario', xml: 'ConsigneeCode', isGeneral: true },
+        'ConsigneeName': { label: 'Nombre Consignatario', xml: 'ConsigneeName', isGeneral: true },
+        'ImporterCode': { label: 'RNC del Importador', xml: 'ImporterCode', isGeneral: true },
+        'ImporterName': { label: 'Nombre del Importador', xml: 'ImporterName', isGeneral: true },
+        'DeclarantCode': { label: 'RNC del Declarante', xml: 'DeclarantCode', isGeneral: true },
+        'DeclarantName': { label: 'Nombre del Declarante', xml: 'DeclarantName', isGeneral: true },
+        'RegimenCode': { label: 'Código de Régimen', xml: 'RegimenCode', isGeneral: true },
+        'TotalFOB': { label: 'Valor FOB Total', xml: 'TotalFOB', isGeneral: true },
+        'InsuranceValue': { label: 'Valor del Seguro', xml: 'InsuranceValue', isGeneral: true },
+        'FreightValue': { label: 'Valor del Flete', xml: 'FreightValue', isGeneral: true },
+        'OtherValue': { label: 'Otros Valores', xml: 'OtherValue', isGeneral: true },
+        'TotalCIF': { label: 'Valor CIF Total', xml: 'TotalCIF', isGeneral: true },
+        // Proveedor Extranjero
+        'ForeignSupplierName': { label: 'Nombre Proveedor', xml: 'ForeignSupplierName', isGeneral: true },
+        'ForeignSupplierCode': { label: 'Código Proveedor', xml: 'ForeignSupplierCode', isGeneral: true },
+        'ForeignSupplierNationality': { label: 'Nacionalidad Proveedor', xml: 'ForeignSupplierNationality', isGeneral: true },
+        // Campos de productos
+        'HSCode': { label: 'Código Arancelario', xml: 'HSCode', isProduct: true },
+        'ProductName': { label: 'Nombre del Producto', xml: 'ProductName', isProduct: true },
+        'ProductStatusCode': { label: 'Estado del Producto', xml: 'ProductStatusCode', isProduct: true },
+        'FOBValue': { label: 'Valor FOB', xml: 'FOBValue', isProduct: true },
+        'UnitCode': { label: 'Código de Unidad', xml: 'UnitCode', isProduct: true },
+        'Qty': { label: 'Cantidad', xml: 'Qty', isProduct: true },
+        'Weight': { label: 'Peso', xml: 'Weight', isProduct: true },
+        'OriginCountry': { label: 'País de Origen', xml: 'OriginCountry', isProduct: true },
+        'TempProductYN': { label: '¿Producto Temporal?', xml: 'TempProductYN', isProduct: true },
+        'OrganicYN': { label: '¿Producto Orgánico?', xml: 'OrganicYN', isProduct: true }
     };
     
     // Crear elementos de error clickeables
@@ -5987,79 +6201,103 @@ function mostrarPanelValidacion(errores) {
         
         // Extraer el nombre del campo del mensaje de error
         let campoId = null;
-        for (const [campo, fieldKey] of Object.entries(campoToFieldKey)) {
+        let campoData = null;
+        for (const [campo, info] of Object.entries(campoInfo)) {
             if (error.includes(campo)) {
-                campoId = fieldKey;
+                campoId = campo;
+                campoData = info;
                 break;
             }
         }
         
         // Para productos, extraer el índice si existe
+        let productIndex = null;
         const productMatch = error.match(/Producto (\d+):/);
-        if (productMatch && campoId) {
-            const productIndex = parseInt(productMatch[1]) - 1;
-            // Ajustar el campo para productos dentro de arrays
-            if (campoId === 'ProductStatusCode' || campoId === 'TempProductYN' || campoId === 'OrganicYN') {
-                campoId = `ImpDeclarationProduct[${productIndex}].${campoId}`;
-            }
+        if (productMatch) {
+            productIndex = parseInt(productMatch[1]) - 1;
         }
+        
+        // Crear HTML del error con información del campo XML
+        const xmlTag = campoData ? `<span class="xml-tag-error">(${campoData.xml})</span>` : '';
         
         errorItem.innerHTML = `
             <div class="validation-error-icon">
                 <i class="fas fa-exclamation-circle"></i>
             </div>
             <div class="validation-error-text">
-                <strong>${index + 1}.</strong> ${error}
-                <span class="field-required-marker"></span>
+                <strong>${index + 1}.</strong> ${error} ${xmlTag}
+            </div>
+            <div class="validation-error-action">
+                <i class="fas fa-arrow-right"></i>
             </div>
         `;
         
-        // Hacer el item clickeable para ir directamente al campo en la vista de resultados
+        // Hacer el item clickeable
         errorItem.style.cursor = 'pointer';
+        errorItem.title = 'Click para ir al campo';
+        
         errorItem.onclick = () => {
-            // Buscar el campo en la vista de resultados por data-field-key
-            // Intentar con el campoId exacto primero, luego buscar parcialmente
-            let fieldElement = document.querySelector(`[data-field-key="${campoId}"]`);
+            // Si es un campo de producto, abrir el modal de edición del producto
+            if (campoData && campoData.isProduct && productIndex !== null) {
+                console.log(`📝 Abriendo modal para producto ${productIndex + 1}, campo ${campoId}`);
+                
+                // Usar la función del products-manager.js
+                if (typeof window.irACampoProducto === 'function') {
+                    window.irACampoProducto(campoId, productIndex);
+                } else if (typeof window.editarProductoCompleto === 'function') {
+                    window.editarProductoCompleto(productIndex);
+                    // Esperar y luego enfocar el campo
+                    setTimeout(() => {
+                        const inputField = document.getElementById(`modal-${campoId}`);
+                        if (inputField) {
+                            inputField.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            inputField.focus();
+                            inputField.classList.add('input-destacado');
+                            setTimeout(() => inputField.classList.remove('input-destacado'), 2000);
+                        }
+                    }, 400);
+                }
+                return;
+            }
             
-            if (!fieldElement) {
-                // Buscar parcialmente (el campo puede estar en un path como ImpDeclaration.ImporterCode)
-                fieldElement = document.querySelector(`[data-field-key$="${campoId}"]`) ||
+            // Si es un campo general, abrir el modal de declaración general
+            if (campoData && campoData.isGeneral) {
+                console.log(`📝 Abriendo modal de declaración para campo ${campoId}`);
+                abrirModalDeclaracionGeneral(campoId);
+                return;
+            }
+            
+            // Si es un campo general, buscar en la vista de resultados
+            let fieldElement = document.querySelector(`[data-field-key="${campoId}"]`) ||
+                              document.querySelector(`[data-field-key$="${campoId}"]`) ||
                               document.querySelector(`[data-field-key*=".${campoId}"]`) ||
                               document.querySelector(`[data-field-key*="${campoId}"]`);
-            }
             
             if (fieldElement) {
                 console.log('✅ Campo encontrado:', fieldElement);
                 
-                // Ocultar el panel de validación temporalmente para mejor visibilidad
-                const validationPanel = document.getElementById('validation-panel');
-                if (validationPanel) {
-                    validationPanel.style.opacity = '0.3';
-                    validationPanel.style.transition = 'opacity 0.3s';
-                }
+                // Ocultar el panel de validación temporalmente
+                panel.style.opacity = '0.3';
+                panel.style.transition = 'opacity 0.3s';
                 
-                // Hacer scroll al campo con un pequeño delay
+                // Hacer scroll al campo
                 setTimeout(() => {
                     fieldElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     
-                    // Añadir efecto visual temporal de resaltado
+                    // Resaltar el campo
                     fieldElement.style.border = '3px solid #dc2626';
                     fieldElement.style.boxShadow = '0 0 15px rgba(220, 38, 38, 0.5)';
                     fieldElement.style.transform = 'scale(1.02)';
                     fieldElement.style.transition = 'all 0.3s ease';
                     fieldElement.style.backgroundColor = '#fee2e2';
                     
-                    // Pulsar el elemento para abrir la edición inline
+                    // Abrir edición
                     setTimeout(() => {
                         fieldElement.click();
-                        
-                        // Restaurar opacidad del panel
-                        if (validationPanel) {
-                            validationPanel.style.opacity = '1';
-                        }
+                        panel.style.opacity = '1';
                     }, 600);
                     
-                    // Restaurar estilos después de un tiempo
+                    // Restaurar estilos
                     setTimeout(() => {
                         fieldElement.style.border = '';
                         fieldElement.style.boxShadow = '';
@@ -6068,10 +6306,9 @@ function mostrarPanelValidacion(errores) {
                     }, 3000);
                 }, 200);
             } else {
-                console.warn('❌ Campo no encontrado en la vista:', campoId);
-                console.log('Buscando:', campoId);
-                console.log('Elementos disponibles:', Array.from(document.querySelectorAll('[data-field-key]')).map(el => el.getAttribute('data-field-key')));
-                showNotification('Campo no encontrado en la vista. Desplázate manualmente para editarlo.', 'warning');
+                // Si no se encuentra, abrir el modal de declaración general
+                console.log('Campo no encontrado en vista, abriendo modal de declaración');
+                abrirModalDeclaracionGeneral(campoId);
             }
         };
         
@@ -6094,24 +6331,890 @@ function ocultarPanelValidacion() {
     }
 }
 
+// ================================================
+// MODAL DE DECLARACIÓN GENERAL (Campos SIGA)
+// ================================================
+
+/**
+ * Abre el modal para editar los campos generales de la declaración
+ * @param {string} focusField - Campo a enfocar después de abrir el modal
+ */
+function abrirModalDeclaracionGeneral(focusField = null) {
+    // Obtener datos actuales
+    const data = resultadoActual?.ImportDUA?.ImpDeclaration || resultadoActual || {};
+    
+    // Obtener datos del proveedor extranjero
+    const supplier = data.ImpDeclarationSupplier || {};
+    
+    // Crear modal si no existe
+    let modalOverlay = document.getElementById('declaration-modal-overlay');
+    
+    if (!modalOverlay) {
+        modalOverlay = document.createElement('div');
+        modalOverlay.id = 'declaration-modal-overlay';
+        modalOverlay.className = 'product-modal-overlay';
+        document.body.appendChild(modalOverlay);
+    }
+    
+    // Valores actuales
+    const vals = {
+        ClearanceType: data.ClearanceType || '',
+        AreaCode: data.AreaCode || '10150',
+        FormNo: data.FormNo || '',
+        BLNo: data.BLNo || '',
+        ManifestNo: data.ManifestNo || '',
+        ConsigneeCode: data.ConsigneeCode || '',
+        ConsigneeName: data.ConsigneeName || '',
+        ConsigneeNationality: data.ConsigneeNationality || '214',
+        CargoControlNo: data.CargoControlNo || 'SN',
+        CommercialInvoiceNo: data.CommercialInvoiceNo || '',
+        DestinationLocationCode: data.DestinationLocationCode || '',
+        EntryPort: data.EntryPort || '',
+        DepartureCountryCode: data.DepartureCountryCode || '',
+        TransportCompanyCode: data.TransportCompanyCode || '',
+        TransportNationality: data.TransportNationality || '',
+        TransportMethod: data.TransportMethod || '',
+        ImporterCode: data.ImporterCode || '',
+        ImporterName: data.ImporterName || '',
+        ImporterNationality: data.ImporterNationality || '214',
+        BrokerEmployeeCode: data.BrokerEmployeeCode || '',
+        BrokerCompanyCode: data.BrokerCompanyCode || '',
+        DeclarantCode: data.DeclarantCode || '',
+        DeclarantName: data.DeclarantName || '',
+        DeclarantNationality: data.DeclarantNationality || '214',
+        RegimenCode: data.RegimenCode || '1',
+        AgreementCode: data.AgreementCode || '',
+        TotalFOB: data.TotalFOB || '',
+        InsuranceValue: data.InsuranceValue || '0',
+        FreightValue: data.FreightValue || '0',
+        OtherValue: data.OtherValue || '0',
+        TotalCIF: data.TotalCIF || '',
+        TotalWeight: data.TotalWeight || '',
+        NetWeight: data.NetWeight || '',
+        Remark: data.Remark || '',
+        // Proveedor Extranjero
+        ForeignSupplierName: supplier.ForeignSupplierName || '',
+        ForeignSupplierCode: supplier.ForeignSupplierCode || '',
+        ForeignSupplierNationality: supplier.ForeignSupplierNationality || ''
+    };
+    
+    modalOverlay.innerHTML = `
+        <div class="product-modal product-modal-full">
+            <div class="product-modal-header" style="background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);">
+                <h3><i class="fas fa-file-invoice"></i> Datos de la Declaración (ImpDeclaration)</h3>
+                <button class="product-modal-close" onclick="cerrarModalDeclaracion()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="product-modal-body">
+                <!-- SECCIÓN: CAMPOS OBLIGATORIOS -->
+                <div class="form-section-header obligatorio">
+                    <i class="fas fa-star"></i>
+                    <span>Campos Obligatorios SIGA</span>
+                </div>
+                <div class="product-form-grid">
+                    <div class="product-form-group" id="decl-field-ClearanceType">
+                        <label>
+                            <i class="fas fa-file-signature"></i>
+                            Tipo de Despacho <span class="xml-tag">(ClearanceType)</span> <span class="required">*</span>
+                        </label>
+                        <input type="text" id="decl-ClearanceType" value="${escapeHtml(vals.ClearanceType)}" 
+                               placeholder="IC38-002" class="campo-obligatorio">
+                        <small>Ej: IC38-002 (Definitiva), IC38-001 (Temporal), IC04-001 (Especial)</small>
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-ImporterCode">
+                        <label>
+                            <i class="fas fa-id-card"></i>
+                            RNC del Importador <span class="xml-tag">(ImporterCode)</span> <span class="required">*</span>
+                        </label>
+                        <input type="text" id="decl-ImporterCode" value="${escapeHtml(vals.ImporterCode)}" 
+                               placeholder="RNC123456789" class="campo-obligatorio">
+                        <small>Debe comenzar con RNC seguido de números</small>
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-DeclarantCode">
+                        <label>
+                            <i class="fas fa-user-tie"></i>
+                            RNC del Declarante <span class="xml-tag">(DeclarantCode)</span> <span class="required">*</span>
+                        </label>
+                        <input type="text" id="decl-DeclarantCode" value="${escapeHtml(vals.DeclarantCode)}" 
+                               placeholder="RNC123456789" class="campo-obligatorio">
+                        <small>Debe comenzar con RNC seguido de números</small>
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-RegimenCode">
+                        <label>
+                            <i class="fas fa-balance-scale"></i>
+                            Código de Régimen <span class="xml-tag">(RegimenCode)</span> <span class="required">*</span>
+                        </label>
+                        <input type="text" id="decl-RegimenCode" value="${escapeHtml(vals.RegimenCode)}" 
+                               placeholder="1" class="campo-obligatorio">
+                        <small>Ej: 1 (Definitivo), 4 (Temporal), 70 (Zona Franca)</small>
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-FormNo">
+                        <label>
+                            <i class="fas fa-hashtag"></i>
+                            Número de Formulario <span class="xml-tag">(FormNo)</span> <span class="required">*</span>
+                        </label>
+                        <input type="text" id="decl-FormNo" value="${escapeHtml(vals.FormNo)}" 
+                               placeholder="Ej: 39155" class="campo-obligatorio">
+                        <small>Número único del formulario de declaración</small>
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-BLNo">
+                        <label>
+                            <i class="fas fa-ship"></i>
+                            Número B/L <span class="xml-tag">(BLNo)</span> <span class="required">*</span>
+                        </label>
+                        <input type="text" id="decl-BLNo" value="${escapeHtml(vals.BLNo)}" 
+                               placeholder="PRELIQUIDACION" class="campo-obligatorio">
+                        <small>Usar PRELIQUIDACION si no tiene número B/L</small>
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-ConsigneeCode">
+                        <label>
+                            <i class="fas fa-barcode"></i>
+                            RNC Consignatario <span class="xml-tag">(ConsigneeCode)</span> <span class="required">*</span>
+                        </label>
+                        <input type="text" id="decl-ConsigneeCode" value="${escapeHtml(vals.ConsigneeCode)}" 
+                               placeholder="RNC214101830141" class="campo-obligatorio">
+                        <small>Debe comenzar con RNC seguido de números</small>
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-ConsigneeName">
+                        <label>
+                            <i class="fas fa-user"></i>
+                            Nombre Consignatario <span class="xml-tag">(ConsigneeName)</span> <span class="required">*</span>
+                        </label>
+                        <input type="text" id="decl-ConsigneeName" value="${escapeHtml(vals.ConsigneeName)}" 
+                               placeholder="Nombre o Razón Social" class="campo-obligatorio">
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-TotalFOB">
+                        <label>
+                            <i class="fas fa-dollar-sign"></i>
+                            Valor FOB Total <span class="xml-tag">(TotalFOB)</span> <span class="required">*</span>
+                        </label>
+                        <input type="number" id="decl-TotalFOB" value="${vals.TotalFOB}" 
+                               placeholder="0.0000" step="0.0001" min="0" class="campo-obligatorio"
+                               oninput="calcularTotalCIF()">
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-InsuranceValue">
+                        <label>
+                            <i class="fas fa-shield-alt"></i>
+                            Valor del Seguro <span class="xml-tag">(InsuranceValue)</span> <span class="required">*</span>
+                        </label>
+                        <input type="number" id="decl-InsuranceValue" value="${vals.InsuranceValue}" 
+                               placeholder="0.00" step="0.01" min="0" class="campo-obligatorio"
+                               oninput="calcularTotalCIF()">
+                        <small>Usar 0 si no aplica</small>
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-FreightValue">
+                        <label>
+                            <i class="fas fa-truck"></i>
+                            Valor del Flete <span class="xml-tag">(FreightValue)</span> <span class="required">*</span>
+                        </label>
+                        <input type="number" id="decl-FreightValue" value="${vals.FreightValue}" 
+                               placeholder="0.00" step="0.01" min="0" class="campo-obligatorio"
+                               oninput="calcularTotalCIF()">
+                        <small>Usar 0 si no aplica</small>
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-OtherValue">
+                        <label>
+                            <i class="fas fa-coins"></i>
+                            Otros Valores <span class="xml-tag">(OtherValue)</span>
+                        </label>
+                        <input type="number" id="decl-OtherValue" value="${vals.OtherValue}" 
+                               placeholder="0.0000" step="0.0001" min="0"
+                               oninput="calcularTotalCIF()">
+                    </div>
+                </div>
+
+                <!-- SECCIÓN: PROVEEDOR EXTRANJERO -->
+                <div class="form-section-header obligatorio">
+                    <i class="fas fa-globe"></i>
+                    <span>Proveedor Extranjero (ImpDeclarationSupplier)</span>
+                </div>
+                <div class="product-form-grid">
+                    <div class="product-form-group full-width" id="decl-field-ForeignSupplierName">
+                        <label>
+                            <i class="fas fa-building"></i>
+                            Nombre del Proveedor <span class="xml-tag">(ForeignSupplierName)</span> <span class="required">*</span>
+                        </label>
+                        <input type="text" id="decl-ForeignSupplierName" value="${escapeHtml(vals.ForeignSupplierName)}" 
+                               placeholder="Nombre de la empresa proveedora" class="campo-obligatorio">
+                        <small>Nombre completo del proveedor extranjero</small>
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-ForeignSupplierCode">
+                        <label>
+                            <i class="fas fa-id-badge"></i>
+                            Código del Proveedor <span class="xml-tag">(ForeignSupplierCode)</span> <span class="required">*</span>
+                        </label>
+                        <input type="text" id="decl-ForeignSupplierCode" value="${escapeHtml(vals.ForeignSupplierCode)}" 
+                               placeholder="TID724C103085" class="campo-obligatorio">
+                        <small>Formato: TID + código país + identificador (ej: TID724C103085)</small>
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-ForeignSupplierNationality">
+                        <label>
+                            <i class="fas fa-flag"></i>
+                            Nacionalidad Proveedor <span class="xml-tag">(ForeignSupplierNationality)</span> <span class="required">*</span>
+                        </label>
+                        <input type="text" id="decl-ForeignSupplierNationality" value="${escapeHtml(vals.ForeignSupplierNationality)}" 
+                               placeholder="724" class="campo-obligatorio">
+                        <small>Código del país (ej: 724=España, 840=USA, 156=China)</small>
+                    </div>
+                </div>
+
+                <!-- SECCIÓN: IMPORTADOR -->
+                <div class="form-section-header">
+                    <i class="fas fa-building"></i>
+                    <span>Datos del Importador</span>
+                </div>
+                <div class="product-form-grid">
+                    <div class="product-form-group full-width" id="decl-field-ImporterName">
+                        <label>
+                            <i class="fas fa-user"></i>
+                            Nombre del Importador <span class="xml-tag">(ImporterName)</span>
+                        </label>
+                        <input type="text" id="decl-ImporterName" value="${escapeHtml(vals.ImporterName)}" 
+                               placeholder="Nombre o Razón Social">
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-ImporterNationality">
+                        <label>
+                            <i class="fas fa-flag"></i>
+                            Nacionalidad <span class="xml-tag">(ImporterNationality)</span>
+                        </label>
+                        <input type="text" id="decl-ImporterNationality" value="${escapeHtml(vals.ImporterNationality)}" 
+                               placeholder="214 = Rep. Dominicana">
+                    </div>
+                </div>
+
+                <!-- SECCIÓN: DECLARANTE -->
+                <div class="form-section-header">
+                    <i class="fas fa-user-tie"></i>
+                    <span>Datos del Declarante / Agente Aduanal</span>
+                </div>
+                <div class="product-form-grid">
+                    <div class="product-form-group full-width" id="decl-field-DeclarantName">
+                        <label>
+                            <i class="fas fa-user"></i>
+                            Nombre del Declarante <span class="xml-tag">(DeclarantName)</span>
+                        </label>
+                        <input type="text" id="decl-DeclarantName" value="${escapeHtml(vals.DeclarantName)}" 
+                               placeholder="Nombre del Agente Aduanal">
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-BrokerCompanyCode">
+                        <label>
+                            <i class="fas fa-id-badge"></i>
+                            Código Agencia <span class="xml-tag">(BrokerCompanyCode)</span>
+                        </label>
+                        <input type="text" id="decl-BrokerCompanyCode" value="${escapeHtml(vals.BrokerCompanyCode)}" 
+                               placeholder="Código de la agencia">
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-BrokerEmployeeCode">
+                        <label>
+                            <i class="fas fa-id-card-alt"></i>
+                            Código Empleado <span class="xml-tag">(BrokerEmployeeCode)</span>
+                        </label>
+                        <input type="text" id="decl-BrokerEmployeeCode" value="${escapeHtml(vals.BrokerEmployeeCode)}" 
+                               placeholder="Código del empleado">
+                    </div>
+                </div>
+
+                <!-- SECCIÓN: DOCUMENTOS -->
+                <div class="form-section-header">
+                    <i class="fas fa-file-alt"></i>
+                    <span>Documentos y Referencias</span>
+                </div>
+                <div class="product-form-grid">
+                    <div class="product-form-group" id="decl-field-ManifestNo">
+                        <label>
+                            <i class="fas fa-file-invoice"></i>
+                            Número de Manifiesto <span class="xml-tag">(ManifestNo)</span>
+                        </label>
+                        <input type="text" id="decl-ManifestNo" value="${escapeHtml(vals.ManifestNo)}" 
+                               placeholder="Número del manifiesto">
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-CommercialInvoiceNo">
+                        <label>
+                            <i class="fas fa-receipt"></i>
+                            N° Factura Comercial <span class="xml-tag">(CommercialInvoiceNo)</span>
+                        </label>
+                        <input type="text" id="decl-CommercialInvoiceNo" value="${escapeHtml(vals.CommercialInvoiceNo)}" 
+                               placeholder="Número de factura">
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-CargoControlNo">
+                        <label>
+                            <i class="fas fa-boxes"></i>
+                            Control de Carga <span class="xml-tag">(CargoControlNo)</span>
+                        </label>
+                        <input type="text" id="decl-CargoControlNo" value="${escapeHtml(vals.CargoControlNo)}" 
+                               placeholder="SN si no aplica">
+                    </div>
+                </div>
+
+                <!-- SECCIÓN: TRANSPORTE -->
+                <div class="form-section-header">
+                    <i class="fas fa-shipping-fast"></i>
+                    <span>Información de Transporte</span>
+                </div>
+                <div class="product-form-grid">
+                    <div class="product-form-group" id="decl-field-EntryPort">
+                        <label>
+                            <i class="fas fa-anchor"></i>
+                            Puerto de Entrada <span class="xml-tag">(EntryPort)</span>
+                        </label>
+                        <input type="text" id="decl-EntryPort" value="${escapeHtml(vals.EntryPort)}" 
+                               placeholder="Puerto de entrada">
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-DepartureCountryCode">
+                        <label>
+                            <i class="fas fa-plane-departure"></i>
+                            País de Embarque <span class="xml-tag">(DepartureCountryCode)</span>
+                        </label>
+                        <input type="text" id="decl-DepartureCountryCode" value="${escapeHtml(vals.DepartureCountryCode)}" 
+                               placeholder="Código del país">
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-TransportMethod">
+                        <label>
+                            <i class="fas fa-route"></i>
+                            Método de Transporte <span class="xml-tag">(TransportMethod)</span>
+                        </label>
+                        <input type="text" id="decl-TransportMethod" value="${escapeHtml(vals.TransportMethod)}" 
+                               placeholder="1">
+                        <small>Ej: 1 (Marítimo), 2 (Aéreo), 3 (Terrestre), 4 (Postal)</small>
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-TransportCompanyCode">
+                        <label>
+                            <i class="fas fa-truck-loading"></i>
+                            Código Transportista <span class="xml-tag">(TransportCompanyCode)</span>
+                        </label>
+                        <input type="text" id="decl-TransportCompanyCode" value="${escapeHtml(vals.TransportCompanyCode)}" 
+                               placeholder="Código de la empresa">
+                    </div>
+                </div>
+
+                <!-- SECCIÓN: PESOS Y TOTALES -->
+                <div class="form-section-header">
+                    <i class="fas fa-weight"></i>
+                    <span>Pesos y Totales</span>
+                </div>
+                <div class="product-form-grid">
+                    <div class="product-form-group full-width" id="decl-field-TotalCIF">
+                        <label>
+                            <i class="fas fa-calculator"></i>
+                            Valor CIF Total <span class="xml-tag">(TotalCIF)</span>
+                            <span class="auto-calc-badge" style="background: #10b981; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; margin-left: 8px;">Auto-calculado</span>
+                        </label>
+                        <input type="number" id="decl-TotalCIF" value="${vals.TotalCIF}" 
+                               placeholder="0.0000" step="0.0001" min="0" readonly
+                               style="background-color: #f0fdf4; border: 2px solid #10b981; font-weight: bold;">
+                        <small style="color: #10b981;"><i class="fas fa-info-circle"></i> Se calcula automáticamente: TotalCIF = TotalFOB + Seguro + Flete + Otros</small>
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-TotalWeight">
+                        <label>
+                            <i class="fas fa-weight-hanging"></i>
+                            Peso Total (kg) <span class="xml-tag">(TotalWeight)</span>
+                        </label>
+                        <input type="number" id="decl-TotalWeight" value="${vals.TotalWeight}" 
+                               placeholder="0.00" step="0.01" min="0">
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-NetWeight">
+                        <label>
+                            <i class="fas fa-balance-scale-right"></i>
+                            Peso Neto (kg) <span class="xml-tag">(NetWeight)</span>
+                        </label>
+                        <input type="number" id="decl-NetWeight" value="${vals.NetWeight}" 
+                               placeholder="0.00" step="0.01" min="0">
+                    </div>
+                    
+                    <div class="product-form-group" id="decl-field-AreaCode">
+                        <label>
+                            <i class="fas fa-map-marker-alt"></i>
+                            Código de Área <span class="xml-tag">(AreaCode)</span>
+                        </label>
+                        <input type="text" id="decl-AreaCode" value="${escapeHtml(vals.AreaCode)}" 
+                               placeholder="10150">
+                    </div>
+                </div>
+
+                <!-- SECCIÓN: OBSERVACIONES -->
+                <div class="form-section-header">
+                    <i class="fas fa-sticky-note"></i>
+                    <span>Observaciones</span>
+                </div>
+                <div class="product-form-grid">
+                    <div class="product-form-group full-width" id="decl-field-Remark">
+                        <label>
+                            <i class="fas fa-comment-alt"></i>
+                            Observaciones <span class="xml-tag">(Remark)</span>
+                        </label>
+                        <textarea id="decl-Remark" rows="3" 
+                                  placeholder="Observaciones adicionales...">${escapeHtml(vals.Remark)}</textarea>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="product-modal-footer">
+                <button class="btn-modal cancel" onclick="cerrarModalDeclaracion()">
+                    <i class="fas fa-times"></i> Cancelar
+                </button>
+                <button class="btn-modal save" onclick="guardarDeclaracionGeneral()">
+                    <i class="fas fa-check"></i> Guardar Cambios
+                </button>
+            </div>
+        </div>
+    `;
+    
+    // Mostrar modal
+    setTimeout(() => {
+        modalOverlay.classList.add('active');
+        
+        // Agregar listeners para quitar el error al escribir
+        agregarListenersQuitarError();
+        
+        // Marcar campos con error
+        marcarCamposConErrorEnModal();
+        
+        // Calcular TotalCIF inicial si hay valores
+        calcularTotalCIF();
+        
+        // Si hay un campo específico para enfocar
+        if (focusField) {
+            setTimeout(() => {
+                const fieldContainer = document.getElementById(`decl-field-${focusField}`);
+                const inputField = document.getElementById(`decl-${focusField}`);
+                
+                if (fieldContainer) {
+                    fieldContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    fieldContainer.classList.add('campo-destacado');
+                    setTimeout(() => fieldContainer.classList.remove('campo-destacado'), 2000);
+                }
+                
+                if (inputField) {
+                    inputField.focus();
+                    inputField.classList.add('input-destacado');
+                    setTimeout(() => inputField.classList.remove('input-destacado'), 2000);
+                }
+            }, 300);
+        }
+    }, 10);
+}
+
+/**
+ * Agrega listeners a los campos del modal de declaración para quitar el error al escribir
+ */
+function agregarListenersQuitarError() {
+    // Campos obligatorios que pueden tener error
+    const camposObligatorios = [
+        'decl-ClearanceType',
+        'decl-ImporterCode', 
+        'decl-DeclarantCode',
+        'decl-RegimenCode',
+        'decl-TotalFOB',
+        'decl-InsuranceValue',
+        'decl-FreightValue',
+        'decl-ForeignSupplierName',
+        'decl-ForeignSupplierCode',
+        'decl-ForeignSupplierNationality'
+    ];
+    
+    camposObligatorios.forEach(campoId => {
+        const input = document.getElementById(campoId);
+        if (input) {
+            // Listener para cuando escribe
+            input.addEventListener('input', function() {
+                quitarErrorDeCampo(campoId);
+            });
+            
+            // También para selects (change)
+            input.addEventListener('change', function() {
+                quitarErrorDeCampo(campoId);
+            });
+        }
+    });
+}
+
+/**
+ * Quita el estilo de error de un campo específico
+ */
+function quitarErrorDeCampo(campoId) {
+    // Obtener el nombre del campo (sin el prefijo 'decl-')
+    const nombreCampo = campoId.replace('decl-', '');
+    
+    // Quitar clase de error del input
+    const input = document.getElementById(campoId);
+    if (input) {
+        input.classList.remove('input-error', 'campo-error', 'con-error');
+        input.style.borderColor = '';
+        input.style.backgroundColor = '';
+    }
+    
+    // Quitar del contenedor del campo
+    const fieldContainer = document.getElementById(`decl-field-${nombreCampo}`);
+    if (fieldContainer) {
+        fieldContainer.classList.remove('has-error', 'campo-error');
+        // Quitar alerta inline si existe
+        const alertaInline = fieldContainer.querySelector('.field-inline-alert');
+        if (alertaInline) {
+            alertaInline.remove();
+        }
+    }
+    
+    // También buscar en la vista principal de resultados
+    const detailItems = document.querySelectorAll(`[data-field-key*="${nombreCampo}"]`);
+    detailItems.forEach(item => {
+        item.classList.remove('has-error');
+        const alerta = item.querySelector('.field-inline-alert');
+        if (alerta) alerta.remove();
+    });
+    
+    // Actualizar el panel de validación (quitar este error específico)
+    actualizarPanelValidacionSinCampo(nombreCampo);
+}
+
+/**
+ * Marca los campos con error en el modal de declaración
+ */
+function marcarCamposConErrorEnModal() {
+    const datosActuales = window.resultadoActual || resultadoActual;
+    if (!datosActuales) return;
+    
+    const errores = validarCamposObligatoriosSIGA(datosActuales);
+    
+    errores.forEach(error => {
+        // Campos generales
+        const camposGenerales = ['ClearanceType', 'ImporterCode', 'DeclarantCode', 'RegimenCode', 'TotalFOB', 'InsuranceValue', 'FreightValue'];
+        
+        camposGenerales.forEach(campo => {
+            if (error.includes(campo)) {
+                const input = document.getElementById(`decl-${campo}`);
+                const container = document.getElementById(`decl-field-${campo}`);
+                
+                if (input) {
+                    input.classList.add('input-error', 'con-error');
+                }
+                if (container) {
+                    container.classList.add('campo-error');
+                }
+            }
+        });
+    });
+}
+
+// Exportar para uso global
+window.marcarCamposConErrorEnModal = marcarCamposConErrorEnModal;
+
+/**
+ * Actualiza el panel de validación quitando errores del campo especificado
+ */
+function actualizarPanelValidacionSinCampo(nombreCampo) {
+    const erroresContainer = document.getElementById('validation-errors');
+    if (!erroresContainer) return;
+    
+    // Buscar y eliminar el error de este campo
+    const errores = erroresContainer.querySelectorAll('.validation-error-item');
+    errores.forEach(errorItem => {
+        if (errorItem.textContent.includes(nombreCampo)) {
+            errorItem.style.transition = 'all 0.3s ease';
+            errorItem.style.opacity = '0';
+            errorItem.style.transform = 'translateX(-20px)';
+            setTimeout(() => errorItem.remove(), 300);
+        }
+    });
+    
+    // Si no quedan errores, ocultar el panel
+    setTimeout(() => {
+        const erroresRestantes = erroresContainer.querySelectorAll('.validation-error-item');
+        if (erroresRestantes.length === 0) {
+            ocultarPanelValidacion();
+        }
+    }, 350);
+}
+
+/**
+ * Calcula automáticamente el TotalCIF sumando TotalFOB + InsuranceValue + FreightValue + OtherValue
+ */
+function calcularTotalCIF() {
+    const getNumValue = (id) => {
+        const el = document.getElementById(id);
+        if (!el) return 0;
+        const val = parseFloat(el.value);
+        return isNaN(val) ? 0 : val;
+    };
+    
+    const totalFOB = getNumValue('decl-TotalFOB');
+    const insuranceValue = getNumValue('decl-InsuranceValue');
+    const freightValue = getNumValue('decl-FreightValue');
+    const otherValue = getNumValue('decl-OtherValue');
+    
+    const totalCIF = totalFOB + insuranceValue + freightValue + otherValue;
+    
+    const cifInput = document.getElementById('decl-TotalCIF');
+    if (cifInput) {
+        cifInput.value = totalCIF.toFixed(4);
+        
+        // Efecto visual al actualizar
+        cifInput.style.transition = 'background-color 0.3s';
+        cifInput.style.backgroundColor = '#d1fae5';
+        setTimeout(() => {
+            cifInput.style.backgroundColor = '#f0fdf4';
+        }, 300);
+    }
+    
+    console.log(`📊 TotalCIF calculado: ${totalFOB} + ${insuranceValue} + ${freightValue} + ${otherValue} = ${totalCIF}`);
+}
+
+// Exportar función globalmente
+window.calcularTotalCIF = calcularTotalCIF;
+
+/**
+ * Cierra el modal de declaración general
+ */
+function cerrarModalDeclaracion() {
+    const modalOverlay = document.getElementById('declaration-modal-overlay');
+    if (modalOverlay) {
+        modalOverlay.classList.remove('active');
+    }
+}
+
+/**
+ * Guarda los cambios de la declaración general
+ */
+function guardarDeclaracionGeneral() {
+    // Forzar que cualquier input pendiente se procese
+    document.activeElement?.blur();
+    
+    // Pequeño delay para asegurar que todos los valores estén actualizados
+    setTimeout(() => {
+        guardarDeclaracionGeneralReal();
+    }, 50);
+}
+
+function guardarDeclaracionGeneralReal() {
+    const getVal = (id) => {
+        const el = document.getElementById(id);
+        return el ? el.value.trim() : '';
+    };
+    const getNum = (id) => {
+        const el = document.getElementById(id);
+        if (!el) return undefined;
+        const val = el.value.trim();
+        if (val === '') return undefined;
+        const num = parseFloat(val);
+        return isNaN(num) ? undefined : num;
+    };
+    
+    // Crear objeto con los datos de la declaración
+    const datosDeclaracion = {
+        ClearanceType: getVal('decl-ClearanceType'),
+        AreaCode: getVal('decl-AreaCode'),
+        FormNo: getVal('decl-FormNo'),
+        BLNo: getVal('decl-BLNo'),
+        ManifestNo: getVal('decl-ManifestNo'),
+        ConsigneeCode: getVal('decl-ConsigneeCode'),
+        ConsigneeName: getVal('decl-ConsigneeName'),
+        ConsigneeNationality: getVal('decl-ConsigneeNationality'),
+        CargoControlNo: getVal('decl-CargoControlNo'),
+        CommercialInvoiceNo: getVal('decl-CommercialInvoiceNo'),
+        EntryPort: getVal('decl-EntryPort'),
+        DepartureCountryCode: getVal('decl-DepartureCountryCode'),
+        TransportCompanyCode: getVal('decl-TransportCompanyCode'),
+        TransportMethod: getVal('decl-TransportMethod'),
+        ImporterCode: getVal('decl-ImporterCode'),
+        ImporterName: getVal('decl-ImporterName'),
+        ImporterNationality: getVal('decl-ImporterNationality'),
+        BrokerEmployeeCode: getVal('decl-BrokerEmployeeCode'),
+        BrokerCompanyCode: getVal('decl-BrokerCompanyCode'),
+        DeclarantCode: getVal('decl-DeclarantCode'),
+        DeclarantName: getVal('decl-DeclarantName'),
+        DeclarantNationality: getVal('decl-DeclarantNationality'),
+        RegimenCode: getVal('decl-RegimenCode'),
+        AgreementCode: getVal('decl-AgreementCode'),
+        TotalFOB: getNum('decl-TotalFOB'),
+        InsuranceValue: getNum('decl-InsuranceValue'),
+        FreightValue: getNum('decl-FreightValue'),
+        OtherValue: getNum('decl-OtherValue'),
+        TotalCIF: getNum('decl-TotalCIF'),
+        TotalWeight: getNum('decl-TotalWeight'),
+        NetWeight: getNum('decl-NetWeight'),
+        Remark: getVal('decl-Remark')
+    };
+    
+    // Datos del proveedor extranjero
+    const datosSupplier = {
+        ForeignSupplierName: getVal('decl-ForeignSupplierName'),
+        ForeignSupplierCode: getVal('decl-ForeignSupplierCode'),
+        ForeignSupplierNationality: getVal('decl-ForeignSupplierNationality')
+    };
+    
+    console.log('📝 Datos antes de limpiar:', JSON.stringify(datosDeclaracion, null, 2));
+    console.log('📝 Datos Proveedor:', JSON.stringify(datosSupplier, null, 2));
+    
+    // NO eliminar campos obligatorios aunque estén undefined
+    // Solo limpiar campos no obligatorios que estén vacíos
+    const camposObligatorios = ['ClearanceType', 'ImporterCode', 'DeclarantCode', 'RegimenCode', 'TotalFOB', 'InsuranceValue', 'FreightValue'];
+    Object.keys(datosDeclaracion).forEach(key => {
+        // No eliminar campos obligatorios
+        if (camposObligatorios.includes(key)) return;
+        // Eliminar campos vacíos que no son obligatorios
+        if (datosDeclaracion[key] === undefined || datosDeclaracion[key] === '') {
+            delete datosDeclaracion[key];
+        }
+    });
+    
+    console.log('📝 Datos después de limpiar:', JSON.stringify(datosDeclaracion, null, 2));
+    
+    // Actualizar window.resultadoActual directamente
+    if (!window.resultadoActual) {
+        window.resultadoActual = {};
+    }
+    
+    // Preservar productos existentes
+    const productosActuales = window.resultadoActual.ImpDeclarationProduct || 
+                              window.resultadoActual.productos || 
+                              (window.productosClasificados ? [...window.productosClasificados] : []);
+    
+    // Fusionar los datos DIRECTAMENTE en window.resultadoActual
+    Object.keys(datosDeclaracion).forEach(key => {
+        window.resultadoActual[key] = datosDeclaracion[key];
+    });
+    
+    // Guardar datos del proveedor extranjero
+    if (datosSupplier.ForeignSupplierName || datosSupplier.ForeignSupplierCode || datosSupplier.ForeignSupplierNationality) {
+        window.resultadoActual.ImpDeclarationSupplier = {
+            ForeignSupplierName: datosSupplier.ForeignSupplierName || '',
+            ForeignSupplierCode: datosSupplier.ForeignSupplierCode || '',
+            ForeignSupplierNationality: datosSupplier.ForeignSupplierNationality || ''
+        };
+    }
+    
+    // Asegurar que los productos se mantengan
+    if (productosActuales.length > 0) {
+        window.resultadoActual.ImpDeclarationProduct = productosActuales;
+    }
+    
+    // También actualizar la referencia local
+    resultadoActual = window.resultadoActual;
+    
+    // Actualizar editedClassification
+    window.editedClassification = window.resultadoActual;
+    
+    console.log('📊 GUARDADO - window.resultadoActual:', window.resultadoActual);
+    console.log('📊 Valores guardados - ClearanceType:', window.resultadoActual.ClearanceType, 
+                'ImporterCode:', window.resultadoActual.ImporterCode,
+                'DeclarantCode:', window.resultadoActual.DeclarantCode,
+                'RegimenCode:', window.resultadoActual.RegimenCode,
+                'TotalFOB:', window.resultadoActual.TotalFOB,
+                'Supplier:', window.resultadoActual.ImpDeclarationSupplier);
+    
+    // Cerrar modal
+    cerrarModalDeclaracion();
+    
+    // Limpiar TODOS los errores visuales
+    document.querySelectorAll('.detail-item.has-error').forEach(item => {
+        item.classList.remove('has-error');
+    });
+    document.querySelectorAll('.field-inline-alert').forEach(alert => alert.remove());
+    document.querySelectorAll('.input-error, .con-error, .campo-error').forEach(item => {
+        item.classList.remove('input-error', 'con-error', 'campo-error');
+    });
+    
+    // Ocultar el panel de validación temporalmente
+    ocultarPanelValidacion();
+    
+    // Revalidar campos después de un breve delay
+    setTimeout(() => {
+        console.log('🔄 Revalidando con datos:', window.resultadoActual);
+        validarYMostrarPanel();
+    }, 200);
+    
+    showNotification('✅ Datos de la declaración guardados correctamente', 'success');
+}
+
+// Exportar funciones globalmente
+window.abrirModalDeclaracionGeneral = abrirModalDeclaracionGeneral;
+window.cerrarModalDeclaracion = cerrarModalDeclaracion;
+window.guardarDeclaracionGeneral = guardarDeclaracionGeneral;
+window.guardarDeclaracionGeneralReal = guardarDeclaracionGeneralReal;
+
 // Validar automáticamente al mostrar resultados
 function validarYMostrarPanel() {
-    if (!resultadoActual) return;
+    // Usar SIEMPRE window.resultadoActual
+    const datosActuales = window.resultadoActual;
     
-    const errores = validarCamposObligatoriosSIGA(resultadoActual);
+    if (!datosActuales) {
+        console.log('⚠️ validarYMostrarPanel: No hay datos para validar');
+        return;
+    }
     
-    // Primero limpiar todas las advertencias amarillas
+    // Fusionar productos: mantener datos originales y aplicar ediciones
+    const productosOriginales = datosActuales.ImpDeclarationProduct || datosActuales.productos || [];
+    
+    if (window.productosClasificados && window.productosClasificados.length > 0) {
+        datosActuales.ImpDeclarationProduct = window.productosClasificados.map((p, idx) => {
+            const { _index, _isManual, ...productoEditado } = p;
+            const productoOriginal = productosOriginales[idx] || {};
+            // Fusionar: original + ediciones
+            return { ...productoOriginal, ...productoEditado };
+        });
+    }
+    
+    console.log('🔍 Validando datos:', {
+        ClearanceType: datosActuales.ClearanceType,
+        ImporterCode: datosActuales.ImporterCode,
+        DeclarantCode: datosActuales.DeclarantCode,
+        RegimenCode: datosActuales.RegimenCode,
+        TotalFOB: datosActuales.TotalFOB,
+        InsuranceValue: datosActuales.InsuranceValue,
+        FreightValue: datosActuales.FreightValue,
+        productos: datosActuales.ImpDeclarationProduct?.length || 0
+    });
+    
+    const errores = validarCamposObligatoriosSIGA(datosActuales);
+    
+    console.log('📋 Errores encontrados:', errores.length, errores);
+    
+    // SIEMPRE limpiar todo primero antes de re-mostrar
     document.querySelectorAll('.detail-item.has-warning').forEach(item => {
         item.classList.remove('has-warning');
     });
+    document.querySelectorAll('.detail-item.has-error').forEach(item => {
+        item.classList.remove('has-error');
+    });
+    document.querySelectorAll('.field-inline-alert').forEach(alert => alert.remove());
+    document.querySelectorAll('.input-error').forEach(item => {
+        item.classList.remove('input-error', 'con-error');
+    });
+    document.querySelectorAll('.campo-error').forEach(item => {
+        item.classList.remove('campo-error');
+    });
     
     if (errores.length > 0) {
-        console.log('❌ Hay errores rojos, no se mostrarán advertencias amarillas');
+        console.log('❌ Hay', errores.length, 'errores rojos');
         mostrarPanelValidacion(errores);
         mostrarAlertasInline(errores);
         ocultarPanelAdvertencia(); // Ocultar panel amarillo si hay errores rojos
     } else {
-        console.log('✅ No hay errores rojos, mostrando advertencias amarillas...');
+        console.log('✅ No hay errores rojos - TODO CORRECTO');
         ocultarPanelValidacion();
         limpiarAlertasInline();
         

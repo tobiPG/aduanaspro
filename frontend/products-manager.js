@@ -10,12 +10,27 @@ let productosEditados = new Map(); // Para trackear ediciones
 /**
  * Renderiza los productos clasificados con el nuevo diseño
  */
-function renderizarProductos(data) {
+function renderizarProductos(data, esActualizacion = false) {
     const container = document.getElementById('results-content');
     if (!container) return;
     
-    // Extraer productos del resultado
+    // Extraer productos del resultado (preserva todos los campos originales)
     productosClasificados = extraerProductos(data);
+    
+    // IMPORTANTE: Sincronizar con window para preservar datos originales
+    window.productosClasificados = productosClasificados;
+    
+    // Solo guardar _productosOriginales si es la PRIMERA carga (no una actualización)
+    // Esto es crítico para no perder campos de la API (Description, UnitPriceUSD, etc.)
+    if (!esActualizacion || !window._productosOriginales || window._productosOriginales.length === 0) {
+        window._productosOriginales = JSON.parse(JSON.stringify(productosClasificados));
+        console.log('📦 Productos ORIGINALES guardados:', window._productosOriginales.length);
+        if (window._productosOriginales[0]) {
+            console.log('📦 Campos del primer producto original:', Object.keys(window._productosOriginales[0]));
+        }
+    } else {
+        console.log('📦 Preservando _productosOriginales existentes:', window._productosOriginales.length);
+    }
     
     // Crear HTML de la vista de productos
     const html = `
@@ -27,6 +42,13 @@ function renderizarProductos(data) {
                     <span class="products-count-badge">${productosClasificados.length} ${productosClasificados.length === 1 ? 'item' : 'items'}</span>
                 </div>
                 <div class="products-header-right">
+                    <!-- Checkbox Global: Productos Orgánicos -->
+                    <label class="global-checkbox-container" title="Marcar/desmarcar todos los productos como orgánicos">
+                        <input type="checkbox" id="global-organic-checkbox" onchange="toggleOrganicTodosProductos(this.checked)">
+                        <span class="global-checkbox-label">
+                            <i class="fas fa-leaf"></i> Todos Orgánicos
+                        </span>
+                    </label>
                     <button class="btn-add-product" onclick="abrirModalAgregarProducto()">
                         <i class="fas fa-plus"></i>
                         Añadir Producto
@@ -217,6 +239,22 @@ function mostrarBotonesAccion() {
                 Haz clic en cualquier campo para editarlo. Añade productos manuales con el botón verde.
             </p>
             <div style="display: flex; justify-content: center; gap: 15px; flex-wrap: wrap;">
+                <button onclick="if(typeof abrirModalDeclaracionGeneral === 'function') abrirModalDeclaracionGeneral();" style="
+                    background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+                    color: white;
+                    border: none;
+                    padding: 14px 28px;
+                    font-size: 1rem;
+                    border-radius: 12px;
+                    cursor: pointer;
+                    box-shadow: 0 4px 15px rgba(30, 58, 138, 0.3);
+                    font-weight: 600;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                ">
+                    <i class="fas fa-file-invoice"></i> Datos Declaración
+                </button>
                 <button onclick="abrirModalAgregarProducto()" style="
                     background: linear-gradient(135deg, #10b981 0%, #059669 100%);
                     color: white;
@@ -234,14 +272,14 @@ function mostrarBotonesAccion() {
                     <i class="fas fa-plus"></i> Añadir Producto
                 </button>
                 <button onclick="window.exportarXML()" style="
-                    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+                    background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
                     color: white;
                     border: none;
                     padding: 14px 28px;
                     font-size: 1rem;
                     border-radius: 12px;
                     cursor: pointer;
-                    box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+                    box-shadow: 0 4px 15px rgba(139, 92, 246, 0.3);
                     font-weight: 600;
                     display: flex;
                     align-items: center;
@@ -284,15 +322,26 @@ function editarProductoCompleto(index) {
     productoEditandoIndex = index;
     const producto = productosClasificados[index];
     
+    // Obtener nombre del producto (buscar en múltiples campos incluyendo los de la API)
+    const nombreProducto = obtenerValor(producto, 
+        'ProductName', 'Description', 'descripcion_comercial', 
+        'item_name', 'nombre', 'descripcion'
+    ) || 'Sin nombre';
+    
+    // Truncar el nombre si es muy largo
+    const nombreCorto = nombreProducto.length > 40 
+        ? nombreProducto.substring(0, 40) + '...' 
+        : nombreProducto;
+    
     mostrarModalProducto({
-        titulo: `Editar Producto #${index + 1}`,
+        titulo: `Editar Item #${index + 1}: ${nombreCorto}`,
         producto: producto,
         botonTexto: 'Guardar Cambios'
     });
 }
 
 /**
- * Muestra el modal de producto
+ * Muestra el modal de producto con TODOS los campos del XML SIGA
  */
 function mostrarModalProducto({ titulo, producto, botonTexto }) {
     // Crear modal si no existe
@@ -305,21 +354,46 @@ function mostrarModalProducto({ titulo, producto, botonTexto }) {
         document.body.appendChild(modalOverlay);
     }
     
-    // Obtener valores actuales
-    const hsCode = obtenerValor(producto, 'HSCode', 'hs', 'codigo_hs') || '';
-    const nombre = obtenerValor(producto, 'ProductName', 'descripcion_comercial', 'item_name', 'nombre') || '';
-    const cantidad = obtenerValor(producto, 'Qty', 'cantidad', 'quantity') || '';
-    const unidad = obtenerValor(producto, 'UnitMeasure', 'StatisticalUnitCode', 'unidad_medida_estadistica') || 'KGM';
-    const valorFOB = obtenerValor(producto, 'FOBValue', 'valor_fob', 'valor_unitario') || '';
-    const pesoNeto = obtenerValor(producto, 'NetWeight', 'Weight', 'peso_neto') || '';
-    const pesoBruto = obtenerValor(producto, 'GrossWeight', 'peso_bruto') || '';
-    const paisOrigen = obtenerValor(producto, 'OriginCountryCode', 'OriginCountry', 'pais_origen') || '';
-    const marca = obtenerValor(producto, 'Brand', 'marca') || '';
-    const modelo = obtenerValor(producto, 'Model', 'modelo') || '';
-    const descripcion = obtenerValor(producto, 'descripcion_arancelaria', 'TariffDescription') || '';
+    // Obtener valores actuales - TODOS los campos del XML
+    // IMPORTANTE: Incluir nombres de campos de la API (Description, Quantity, UnitPriceUSD, Unit, AmountUSD)
+    const vals = {
+        HSCode: obtenerValor(producto, 'HSCode', 'hs', 'codigo_hs') || '',
+        ProductCode: obtenerValor(producto, 'ProductCode') || '',
+        // La API devuelve 'Description', mapearlo a ProductName
+        ProductName: obtenerValor(producto, 'ProductName', 'Description', 'descripcion_comercial', 'item_name', 'nombre', 'descripcion') || '',
+        BrandCode: obtenerValor(producto, 'BrandCode') || '',
+        BrandName: obtenerValor(producto, 'BrandName', 'Brand', 'marca') || '',
+        ModelCode: obtenerValor(producto, 'ModelCode') || '',
+        ModelName: obtenerValor(producto, 'ModelName', 'Model', 'modelo') || '',
+        ProductStatusCode: obtenerValor(producto, 'ProductStatusCode') || '',
+        ProductYear: obtenerValor(producto, 'ProductYear') || '',
+        // La API devuelve UnitPriceUSD o AmountUSD, mapear a FOBValue
+        FOBValue: obtenerValor(producto, 'FOBValue', 'UnitPriceUSD', 'AmountUSD', 'valor_fob', 'valor_unitario') || '',
+        // La API devuelve Unit, mapear a UnitCode
+        UnitCode: obtenerValor(producto, 'UnitCode', 'Unit') || '',
+        // La API devuelve Quantity, mapear a Qty
+        Qty: obtenerValor(producto, 'Qty', 'Quantity', 'cantidad', 'quantity') || '',
+        Weight: obtenerValor(producto, 'Weight', 'NetWeight', 'peso_neto') || '',
+        ProductSpecification: obtenerValor(producto, 'ProductSpecification') || '',
+        TempProductYN: (typeof obtenerValor(producto, 'TempProductYN') === 'undefined' || obtenerValor(producto, 'TempProductYN') === null || obtenerValor(producto, 'TempProductYN') === '' || obtenerValor(producto, 'TempProductYN') === false) ? 'true' : obtenerValor(producto, 'TempProductYN'),
+        CertificateOrignYN: obtenerValor(producto, 'CertificateOrignYN') || false,
+        CertificateOriginNo: obtenerValor(producto, 'CertificateOriginNo') || '',
+        OriginCountry: obtenerValor(producto, 'OriginCountry', 'OriginCountryCode', 'pais_origen') || '',
+        OrganicYN: obtenerValor(producto, 'OrganicYN') || false,
+        GradeAlcohol: obtenerValor(producto, 'GradeAlcohol') || '',
+        CustomerSalesPrice: obtenerValor(producto, 'CustomerSalesPrice') || '',
+        ProductSerialNo: obtenerValor(producto, 'ProductSerialNo') || '',
+        VehicleType: obtenerValor(producto, 'VehicleType') || '',
+        VehicleChassis: obtenerValor(producto, 'VehicleChassis') || '',
+        VehicleColor: obtenerValor(producto, 'VehicleColor') || '',
+        VehicleMotor: obtenerValor(producto, 'VehicleMotor') || '',
+        VehicleCC: obtenerValor(producto, 'VehicleCC') || '',
+        ProductDescription: obtenerValor(producto, 'ProductDescription', 'descripcion_arancelaria') || '',
+        Remark: obtenerValor(producto, 'Remark') || ''
+    };
     
     modalOverlay.innerHTML = `
-        <div class="product-modal">
+        <div class="product-modal product-modal-full">
             <div class="product-modal-header">
                 <h3><i class="fas fa-box"></i> ${titulo}</h3>
                 <button class="product-modal-close" onclick="cerrarModalProducto()">
@@ -328,138 +402,332 @@ function mostrarModalProducto({ titulo, producto, botonTexto }) {
             </div>
             
             <div class="product-modal-body">
+                <!-- SECCIÓN: INFORMACIÓN BÁSICA (OBLIGATORIOS) -->
+                <div class="form-section-header obligatorio">
+                    <i class="fas fa-star"></i>
+                    <span>Campos Obligatorios SIGA</span>
+                </div>
                 <div class="product-form-grid">
-                    <!-- Código HS -->
-                    <div class="product-form-group">
+                    <div class="product-form-group" id="field-HSCode">
                         <label>
                             <i class="fas fa-barcode"></i>
-                            Código HS <span class="required">*</span>
+                            Código Arancelario <span class="xml-tag">(HSCode)</span> <span class="required">*</span>
                         </label>
-                        <input type="text" id="modal-hs-code" value="${escapeHtml(hsCode)}" 
-                               placeholder="Ej: 8471.30.00" maxlength="12">
+                        <input type="text" id="modal-HSCode" value="${escapeHtml(vals.HSCode)}" 
+                               placeholder="Ej: 8471.30.00.00" class="campo-obligatorio">
                     </div>
                     
-                    <!-- Cantidad -->
-                    <div class="product-form-group">
+                    <div class="product-form-group" id="field-ProductStatusCode">
+                        <label>
+                            <i class="fas fa-check-circle"></i>
+                            Estado del Producto <span class="xml-tag">(ProductStatusCode)</span> <span class="required">*</span>
+                        </label>
+                        <input type="text" id="modal-ProductStatusCode" value="${escapeHtml(vals.ProductStatusCode || '')}" 
+                               placeholder="IC04-001" class="campo-obligatorio">
+                        <small>Ej: IC04-001 (Nuevo), IC04-002 (Usado), IC04-003 (Reconstruido)</small>
+                    </div>
+                    
+                    <div class="product-form-group" id="field-TempProductYN">
+                        <label>
+                            <i class="fas fa-clock"></i>
+                            ¿Producto Temporal? <span class="xml-tag">(TempProductYN)</span> <span class="required">*</span>
+                        </label>
+                        <select id="modal-TempProductYN" class="campo-obligatorio">
+                            <option value="false" ${!vals.TempProductYN || vals.TempProductYN === 'false' ? 'selected' : ''}>No (false)</option>
+                            <option value="true" ${vals.TempProductYN === true || vals.TempProductYN === 'true' ? 'selected' : ''}>Sí (true)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="product-form-group" id="field-OrganicYN">
+                        <label>
+                            <i class="fas fa-leaf"></i>
+                            ¿Producto Orgánico? <span class="xml-tag">(OrganicYN)</span> <span class="required">*</span>
+                        </label>
+                        <select id="modal-OrganicYN" class="campo-obligatorio">
+                            <option value="false" ${!vals.OrganicYN || vals.OrganicYN === 'false' ? 'selected' : ''}>No (false)</option>
+                            <option value="true" ${vals.OrganicYN === true || vals.OrganicYN === 'true' ? 'selected' : ''}>Sí (true)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- SECCIÓN: IDENTIFICACIÓN DEL PRODUCTO -->
+                <div class="form-section-header">
+                    <i class="fas fa-tag"></i>
+                    <span>Identificación del Producto</span>
+                </div>
+                <div class="product-form-grid">
+                    <div class="product-form-group" id="field-ProductCode">
                         <label>
                             <i class="fas fa-hashtag"></i>
-                            Cantidad <span class="required">*</span>
+                            Código de Producto <span class="xml-tag">(ProductCode)</span>
                         </label>
-                        <input type="number" id="modal-cantidad" value="${cantidad}" 
-                               placeholder="Ej: 10" min="0.01" step="0.01">
+                        <input type="text" id="modal-ProductCode" value="${escapeHtml(vals.ProductCode)}" 
+                               placeholder="Número secuencial del producto">
                     </div>
                     
-                    <!-- Nombre del Producto -->
-                    <div class="product-form-group full-width">
+                    <div class="product-form-group full-width" id="field-ProductName">
                         <label>
-                            <i class="fas fa-tag"></i>
-                            Nombre / Descripción Comercial <span class="required">*</span>
+                            <i class="fas fa-box"></i>
+                            Nombre del Producto <span class="xml-tag">(ProductName)</span>
                         </label>
-                        <input type="text" id="modal-nombre" value="${escapeHtml(nombre)}" 
-                               placeholder="Descripción del producto">
+                        <input type="text" id="modal-ProductName" value="${escapeHtml(vals.ProductName)}" 
+                               placeholder="Descripción comercial del producto">
                     </div>
                     
-                    <!-- Valor FOB -->
-                    <div class="product-form-group">
-                        <label>
-                            <i class="fas fa-dollar-sign"></i>
-                            Valor FOB (USD)
-                        </label>
-                        <input type="number" id="modal-valor-fob" value="${valorFOB}" 
-                               placeholder="Ej: 1500.00" min="0" step="0.01">
-                    </div>
-                    
-                    <!-- Unidad de Medida -->
-                    <div class="product-form-group">
-                        <label>
-                            <i class="fas fa-ruler"></i>
-                            Unidad de Medida
-                        </label>
-                        <select id="modal-unidad">
-                            <option value="KGM" ${unidad === 'KGM' ? 'selected' : ''}>Kilogramos (KGM)</option>
-                            <option value="UND" ${unidad === 'UND' ? 'selected' : ''}>Unidades (UND)</option>
-                            <option value="MTR" ${unidad === 'MTR' ? 'selected' : ''}>Metros (MTR)</option>
-                            <option value="LTR" ${unidad === 'LTR' ? 'selected' : ''}>Litros (LTR)</option>
-                            <option value="PAR" ${unidad === 'PAR' ? 'selected' : ''}>Pares (PAR)</option>
-                            <option value="DOC" ${unidad === 'DOC' ? 'selected' : ''}>Docenas (DOC)</option>
-                            <option value="M2" ${unidad === 'M2' ? 'selected' : ''}>Metros Cuadrados (M2)</option>
-                            <option value="M3" ${unidad === 'M3' ? 'selected' : ''}>Metros Cúbicos (M3)</option>
-                        </select>
-                    </div>
-                    
-                    <!-- Peso Neto -->
-                    <div class="product-form-group">
-                        <label>
-                            <i class="fas fa-weight-hanging"></i>
-                            Peso Neto (kg)
-                        </label>
-                        <input type="number" id="modal-peso-neto" value="${pesoNeto}" 
-                               placeholder="Ej: 25.5" min="0" step="0.01">
-                    </div>
-                    
-                    <!-- Peso Bruto -->
-                    <div class="product-form-group">
-                        <label>
-                            <i class="fas fa-weight"></i>
-                            Peso Bruto (kg)
-                        </label>
-                        <input type="number" id="modal-peso-bruto" value="${pesoBruto}" 
-                               placeholder="Ej: 28.0" min="0" step="0.01">
-                    </div>
-                    
-                    <!-- País de Origen -->
-                    <div class="product-form-group">
-                        <label>
-                            <i class="fas fa-globe"></i>
-                            País de Origen
-                        </label>
-                        <select id="modal-pais-origen">
-                            <option value="">Seleccionar...</option>
-                            <option value="US" ${paisOrigen === 'US' || paisOrigen === '840' ? 'selected' : ''}>Estados Unidos</option>
-                            <option value="CN" ${paisOrigen === 'CN' || paisOrigen === '156' ? 'selected' : ''}>China</option>
-                            <option value="DE" ${paisOrigen === 'DE' || paisOrigen === '276' ? 'selected' : ''}>Alemania</option>
-                            <option value="JP" ${paisOrigen === 'JP' || paisOrigen === '392' ? 'selected' : ''}>Japón</option>
-                            <option value="KR" ${paisOrigen === 'KR' || paisOrigen === '410' ? 'selected' : ''}>Corea del Sur</option>
-                            <option value="MX" ${paisOrigen === 'MX' || paisOrigen === '484' ? 'selected' : ''}>México</option>
-                            <option value="BR" ${paisOrigen === 'BR' || paisOrigen === '076' ? 'selected' : ''}>Brasil</option>
-                            <option value="ES" ${paisOrigen === 'ES' || paisOrigen === '724' ? 'selected' : ''}>España</option>
-                            <option value="IT" ${paisOrigen === 'IT' || paisOrigen === '380' ? 'selected' : ''}>Italia</option>
-                            <option value="FR" ${paisOrigen === 'FR' || paisOrigen === '250' ? 'selected' : ''}>Francia</option>
-                            <option value="GB" ${paisOrigen === 'GB' || paisOrigen === '826' ? 'selected' : ''}>Reino Unido</option>
-                            <option value="TW" ${paisOrigen === 'TW' || paisOrigen === '158' ? 'selected' : ''}>Taiwán</option>
-                            <option value="IN" ${paisOrigen === 'IN' || paisOrigen === '356' ? 'selected' : ''}>India</option>
-                            <option value="VN" ${paisOrigen === 'VN' || paisOrigen === '704' ? 'selected' : ''}>Vietnam</option>
-                            <option value="OTHER" ${!['US','CN','DE','JP','KR','MX','BR','ES','IT','FR','GB','TW','IN','VN','840','156','276','392','410','484','076','724','380','250','826','158','356','704'].includes(paisOrigen) && paisOrigen ? 'selected' : ''}>Otro</option>
-                        </select>
-                    </div>
-                    
-                    <!-- Marca -->
-                    <div class="product-form-group">
-                        <label>
-                            <i class="fas fa-copyright"></i>
-                            Marca
-                        </label>
-                        <input type="text" id="modal-marca" value="${escapeHtml(marca)}" 
-                               placeholder="Ej: Samsung, Apple, etc.">
-                    </div>
-                    
-                    <!-- Modelo -->
-                    <div class="product-form-group">
-                        <label>
-                            <i class="fas fa-info-circle"></i>
-                            Modelo
-                        </label>
-                        <input type="text" id="modal-modelo" value="${escapeHtml(modelo)}" 
-                               placeholder="Ej: XPS 15, Galaxy S23">
-                    </div>
-                    
-                    <!-- Descripción Arancelaria -->
-                    <div class="product-form-group full-width">
+                    <div class="product-form-group full-width" id="field-ProductDescription">
                         <label>
                             <i class="fas fa-file-alt"></i>
-                            Descripción Arancelaria
+                            Descripción del Producto <span class="xml-tag">(ProductDescription)</span>
                         </label>
-                        <textarea id="modal-descripcion" placeholder="Descripción según el arancel...">${escapeHtml(descripcion)}</textarea>
+                        <textarea id="modal-ProductDescription" rows="2" 
+                                  placeholder="Descripción detallada...">${escapeHtml(vals.ProductDescription)}</textarea>
+                    </div>
+                    
+                    <div class="product-form-group full-width" id="field-ProductSpecification">
+                        <label>
+                            <i class="fas fa-list-alt"></i>
+                            Especificaciones <span class="xml-tag">(ProductSpecification)</span>
+                        </label>
+                        <textarea id="modal-ProductSpecification" rows="2" 
+                                  placeholder="Especificaciones técnicas...">${escapeHtml(vals.ProductSpecification)}</textarea>
+                    </div>
+                    
+                    <div class="product-form-group" id="field-ProductYear">
+                        <label>
+                            <i class="fas fa-calendar"></i>
+                            Año del Producto <span class="xml-tag">(ProductYear)</span>
+                        </label>
+                        <input type="number" id="modal-ProductYear" value="${vals.ProductYear}" 
+                               placeholder="Ej: 2025" min="1900" max="2100">
+                    </div>
+                    
+                    <div class="product-form-group" id="field-ProductSerialNo">
+                        <label>
+                            <i class="fas fa-fingerprint"></i>
+                            Número de Serie <span class="xml-tag">(ProductSerialNo)</span>
+                        </label>
+                        <input type="text" id="modal-ProductSerialNo" value="${escapeHtml(vals.ProductSerialNo)}" 
+                               placeholder="Serial del producto">
+                    </div>
+                </div>
+
+                <!-- SECCIÓN: MARCA Y MODELO -->
+                <div class="form-section-header">
+                    <i class="fas fa-copyright"></i>
+                    <span>Marca y Modelo</span>
+                </div>
+                <div class="product-form-grid">
+                    <div class="product-form-group" id="field-BrandCode">
+                        <label>
+                            <i class="fas fa-barcode"></i>
+                            Código de Marca <span class="xml-tag">(BrandCode)</span>
+                        </label>
+                        <input type="text" id="modal-BrandCode" value="${escapeHtml(vals.BrandCode)}" 
+                               placeholder="Código de la marca">
+                    </div>
+                    
+                    <div class="product-form-group" id="field-BrandName">
+                        <label>
+                            <i class="fas fa-trademark"></i>
+                            Nombre de Marca <span class="xml-tag">(BrandName)</span>
+                        </label>
+                        <input type="text" id="modal-BrandName" value="${escapeHtml(vals.BrandName)}" 
+                               placeholder="Ej: Samsung, Apple, Sony">
+                    </div>
+                    
+                    <div class="product-form-group" id="field-ModelCode">
+                        <label>
+                            <i class="fas fa-barcode"></i>
+                            Código de Modelo <span class="xml-tag">(ModelCode)</span>
+                        </label>
+                        <input type="text" id="modal-ModelCode" value="${escapeHtml(vals.ModelCode)}" 
+                               placeholder="Código del modelo">
+                    </div>
+                    
+                    <div class="product-form-group" id="field-ModelName">
+                        <label>
+                            <i class="fas fa-info-circle"></i>
+                            Nombre de Modelo <span class="xml-tag">(ModelName)</span>
+                        </label>
+                        <input type="text" id="modal-ModelName" value="${escapeHtml(vals.ModelName)}" 
+                               placeholder="Ej: Galaxy S24, iPhone 15">
+                    </div>
+                </div>
+
+                <!-- SECCIÓN: CANTIDADES Y VALORES -->
+                <div class="form-section-header">
+                    <i class="fas fa-calculator"></i>
+                    <span>Cantidades y Valores</span>
+                </div>
+                <div class="product-form-grid">
+                    <div class="product-form-group" id="field-Qty">
+                        <label>
+                            <i class="fas fa-sort-numeric-up"></i>
+                            Cantidad <span class="xml-tag">(Qty)</span>
+                        </label>
+                        <input type="number" id="modal-Qty" value="${vals.Qty}" 
+                               placeholder="Cantidad de unidades" min="0.01" step="0.01">
+                    </div>
+                    
+                    <div class="product-form-group" id="field-UnitCode">
+                        <label>
+                            <i class="fas fa-ruler"></i>
+                            Código de Unidad <span class="xml-tag">(UnitCode)</span>
+                        </label>
+                        <select id="modal-UnitCode">
+                            <option value="1" ${vals.UnitCode == '1' ? 'selected' : ''}>1 - Unidades</option>
+                            <option value="3" ${vals.UnitCode == '3' ? 'selected' : ''}>3 - Kilogramos</option>
+                            <option value="8" ${vals.UnitCode == '8' ? 'selected' : ''}>8 - Metros cuadrados</option>
+                        </select>
+                        <small>Solo puedes seleccionar: 1 (Unidades), 3 (Kilogramos), 8 (Metros cuadrados)</small>
+                    </div>
+                    
+                    <div class="product-form-group" id="field-FOBValue">
+                        <label>
+                            <i class="fas fa-dollar-sign"></i>
+                            Valor FOB (USD) <span class="xml-tag">(FOBValue)</span>
+                        </label>
+                        <input type="number" id="modal-FOBValue" value="${vals.FOBValue}" 
+                               placeholder="Valor FOB en USD" min="0" step="0.0001">
+                    </div>
+                    
+                    <div class="product-form-group" id="field-Weight">
+                        <label>
+                            <i class="fas fa-weight-hanging"></i>
+                            Peso (kg) <span class="xml-tag">(Weight)</span>
+                        </label>
+                        <input type="number" id="modal-Weight" value="${vals.Weight}" 
+                               placeholder="Peso en kilogramos" min="0" step="0.01">
+                    </div>
+                    
+                    <div class="product-form-group" id="field-CustomerSalesPrice">
+                        <label>
+                            <i class="fas fa-tag"></i>
+                            Precio de Venta <span class="xml-tag">(CustomerSalesPrice)</span>
+                        </label>
+                        <input type="number" id="modal-CustomerSalesPrice" value="${vals.CustomerSalesPrice}" 
+                               placeholder="Precio de venta al cliente" min="0" step="0.01">
+                    </div>
+                </div>
+
+                <!-- SECCIÓN: ORIGEN Y CERTIFICACIÓN -->
+                <div class="form-section-header">
+                    <i class="fas fa-globe-americas"></i>
+                    <span>Origen y Certificación</span>
+                </div>
+                <div class="product-form-grid">
+                    <div class="product-form-group" id="field-OriginCountry">
+                        <label>
+                            <i class="fas fa-flag"></i>
+                            País de Origen <span class="xml-tag">(OriginCountry)</span>
+                        </label>
+                        <input type="text" id="modal-OriginCountry" value="${escapeHtml(vals.OriginCountry || '')}" 
+                               placeholder="840">
+                        <small>Código numérico del país (Ej: 840-USA, 156-China, 214-RD)</small>
+                    </div>
+                    
+                    <div class="product-form-group" id="field-CertificateOrignYN">
+                        <label>
+                            <i class="fas fa-certificate"></i>
+                            ¿Tiene Certificado de Origen? <span class="xml-tag">(CertificateOrignYN)</span>
+                        </label>
+                        <select id="modal-CertificateOrignYN">
+                            <option value="false" ${!vals.CertificateOrignYN || vals.CertificateOrignYN === 'false' ? 'selected' : ''}>No (false)</option>
+                            <option value="true" ${vals.CertificateOrignYN === true || vals.CertificateOrignYN === 'true' ? 'selected' : ''}>Sí (true)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="product-form-group" id="field-CertificateOriginNo">
+                        <label>
+                            <i class="fas fa-file-contract"></i>
+                            N° Certificado de Origen <span class="xml-tag">(CertificateOriginNo)</span>
+                        </label>
+                        <input type="text" id="modal-CertificateOriginNo" value="${escapeHtml(vals.CertificateOriginNo)}" 
+                               placeholder="Número del certificado">
+                    </div>
+                </div>
+
+                <!-- SECCIÓN: PRODUCTOS ESPECIALES (Alcohol) -->
+                <div class="form-section-header">
+                    <i class="fas fa-wine-bottle"></i>
+                    <span>Productos Especiales (Alcohol)</span>
+                </div>
+                <div class="product-form-grid">
+                    <div class="product-form-group" id="field-GradeAlcohol">
+                        <label>
+                            <i class="fas fa-percent"></i>
+                            Grado de Alcohol <span class="xml-tag">(GradeAlcohol)</span>
+                        </label>
+                        <input type="number" id="modal-GradeAlcohol" value="${vals.GradeAlcohol}" 
+                               placeholder="% de alcohol" min="0" max="100" step="0.1">
+                    </div>
+                </div>
+
+                <!-- SECCIÓN: VEHÍCULOS -->
+                <div class="form-section-header">
+                    <i class="fas fa-car"></i>
+                    <span>Datos de Vehículo (si aplica)</span>
+                </div>
+                <div class="product-form-grid">
+                    <div class="product-form-group" id="field-VehicleType">
+                        <label>
+                            <i class="fas fa-car-side"></i>
+                            Tipo de Vehículo <span class="xml-tag">(VehicleType)</span>
+                        </label>
+                        <input type="text" id="modal-VehicleType" value="${escapeHtml(vals.VehicleType)}" 
+                               placeholder="Ej: Sedán, SUV, Pickup">
+                    </div>
+                    
+                    <div class="product-form-group" id="field-VehicleChassis">
+                        <label>
+                            <i class="fas fa-fingerprint"></i>
+                            N° de Chasis <span class="xml-tag">(VehicleChassis)</span>
+                        </label>
+                        <input type="text" id="modal-VehicleChassis" value="${escapeHtml(vals.VehicleChassis)}" 
+                               placeholder="Número de chasis (VIN)">
+                    </div>
+                    
+                    <div class="product-form-group" id="field-VehicleColor">
+                        <label>
+                            <i class="fas fa-palette"></i>
+                            Color del Vehículo <span class="xml-tag">(VehicleColor)</span>
+                        </label>
+                        <input type="text" id="modal-VehicleColor" value="${escapeHtml(vals.VehicleColor)}" 
+                               placeholder="Ej: Blanco, Negro, Rojo">
+                    </div>
+                    
+                    <div class="product-form-group" id="field-VehicleMotor">
+                        <label>
+                            <i class="fas fa-cog"></i>
+                            N° de Motor <span class="xml-tag">(VehicleMotor)</span>
+                        </label>
+                        <input type="text" id="modal-VehicleMotor" value="${escapeHtml(vals.VehicleMotor)}" 
+                               placeholder="Número del motor">
+                    </div>
+                    
+                    <div class="product-form-group" id="field-VehicleCC">
+                        <label>
+                            <i class="fas fa-tachometer-alt"></i>
+                            Cilindraje (CC) <span class="xml-tag">(VehicleCC)</span>
+                        </label>
+                        <input type="number" id="modal-VehicleCC" value="${vals.VehicleCC}" 
+                               placeholder="Ej: 2000, 3500" min="0">
+                    </div>
+                </div>
+
+                <!-- SECCIÓN: OBSERVACIONES -->
+                <div class="form-section-header">
+                    <i class="fas fa-sticky-note"></i>
+                    <span>Observaciones</span>
+                </div>
+                <div class="product-form-grid">
+                    <div class="product-form-group full-width" id="field-Remark">
+                        <label>
+                            <i class="fas fa-comment-alt"></i>
+                            Observaciones <span class="xml-tag">(Remark)</span>
+                        </label>
+                        <textarea id="modal-Remark" rows="2" 
+                                  placeholder="Observaciones adicionales...">${escapeHtml(vals.Remark)}</textarea>
                     </div>
                 </div>
             </div>
@@ -478,13 +746,169 @@ function mostrarModalProducto({ titulo, producto, botonTexto }) {
     // Mostrar modal
     setTimeout(() => {
         modalOverlay.classList.add('active');
+        
+        // Agregar listeners para quitar el error al escribir
+        agregarListenersQuitarErrorProducto();
+        
+        // Marcar campos con error
+        marcarCamposConErrorEnModalProducto();
     }, 10);
     
     // Enfocar el primer campo
     setTimeout(() => {
-        document.getElementById('modal-hs-code')?.focus();
+        document.getElementById('modal-HSCode')?.focus();
     }, 300);
 }
+
+/**
+ * Agrega listeners a los campos del modal de producto para quitar el error al escribir
+ */
+function agregarListenersQuitarErrorProducto() {
+    // Campos obligatorios de producto
+    const camposObligatorios = [
+        'modal-HSCode',
+        'modal-ProductStatusCode',
+        'modal-TempProductYN',
+        'modal-OrganicYN'
+    ];
+    
+    camposObligatorios.forEach(campoId => {
+        const input = document.getElementById(campoId);
+        if (input) {
+            // Listener para cuando escribe (inputs)
+            input.addEventListener('input', function() {
+                quitarErrorDeCampoProducto(campoId);
+            });
+            
+            // Listener para selects (change)
+            input.addEventListener('change', function() {
+                quitarErrorDeCampoProducto(campoId);
+            });
+        }
+    });
+}
+
+/**
+ * Quita el estilo de error de un campo de producto
+ */
+function quitarErrorDeCampoProducto(campoId) {
+    // Obtener el nombre del campo (sin el prefijo 'modal-')
+    const nombreCampo = campoId.replace('modal-', '');
+    
+    // Quitar clase de error del input
+    const input = document.getElementById(campoId);
+    if (input) {
+        input.classList.remove('input-error', 'campo-error', 'con-error');
+        input.style.borderColor = '';
+        input.style.backgroundColor = '';
+    }
+    
+    // Quitar del contenedor del campo
+    const fieldContainer = document.getElementById(`field-${nombreCampo}`);
+    if (fieldContainer) {
+        fieldContainer.classList.remove('has-error', 'campo-error');
+        // Quitar alerta inline si existe
+        const alertaInline = fieldContainer.querySelector('.field-inline-alert');
+        if (alertaInline) {
+            alertaInline.remove();
+        }
+    }
+    
+    // Actualizar el panel de validación
+    if (typeof window.actualizarPanelValidacionSinCampo === 'function') {
+        // Para productos, el error incluye "Producto X: nombreCampo"
+        const erroresContainer = document.getElementById('validation-errors');
+        if (erroresContainer) {
+            const errores = erroresContainer.querySelectorAll('.validation-error-item');
+            errores.forEach(errorItem => {
+                // Verificar si es un error de este campo de producto
+                if (errorItem.textContent.includes(nombreCampo) && 
+                    errorItem.textContent.includes(`Producto ${productoEditandoIndex + 1}`)) {
+                    errorItem.style.transition = 'all 0.3s ease';
+                    errorItem.style.opacity = '0';
+                    errorItem.style.transform = 'translateX(-20px)';
+                    setTimeout(() => errorItem.remove(), 300);
+                }
+            });
+            
+            // Si no quedan errores, ocultar el panel
+            setTimeout(() => {
+                const erroresRestantes = erroresContainer.querySelectorAll('.validation-error-item');
+                if (erroresRestantes.length === 0) {
+                    const panel = document.getElementById('validation-panel');
+                    if (panel) panel.style.display = 'none';
+                }
+            }, 350);
+        }
+    }
+}
+
+/**
+ * Marca los campos con error en el modal de producto
+ */
+function marcarCamposConErrorEnModalProducto() {
+    if (productoEditandoIndex === null) return;
+    
+    const producto = productosClasificados[productoEditandoIndex];
+    if (!producto) return;
+    
+    // Validar ProductStatusCode
+    if (!producto.ProductStatusCode || producto.ProductStatusCode.trim() === '') {
+        const input = document.getElementById('modal-ProductStatusCode');
+        const container = document.getElementById('field-ProductStatusCode');
+        if (input) input.classList.add('input-error', 'con-error');
+        if (container) container.classList.add('campo-error');
+    }
+    
+    // Validar TempProductYN
+    if (producto.TempProductYN !== 'true' && producto.TempProductYN !== 'false' && 
+        producto.TempProductYN !== true && producto.TempProductYN !== false) {
+        const input = document.getElementById('modal-TempProductYN');
+        const container = document.getElementById('field-TempProductYN');
+        if (input) input.classList.add('input-error', 'con-error');
+        if (container) container.classList.add('campo-error');
+    }
+    
+    // Validar OrganicYN
+    if (producto.OrganicYN !== 'true' && producto.OrganicYN !== 'false' && 
+        producto.OrganicYN !== true && producto.OrganicYN !== false) {
+        const input = document.getElementById('modal-OrganicYN');
+        const container = document.getElementById('field-OrganicYN');
+        if (input) input.classList.add('input-error', 'con-error');
+        if (container) container.classList.add('campo-error');
+    }
+}
+
+/**
+ * Función para ir al campo específico desde las alertas
+ */
+function irACampoProducto(campoXml, productoIndex) {
+    // Si hay un índice de producto, primero abrir el modal de edición
+    if (productoIndex !== undefined && productoIndex !== null) {
+        editarProductoCompleto(productoIndex);
+        
+        // Esperar a que el modal se abra y luego hacer scroll al campo
+        setTimeout(() => {
+            const fieldContainer = document.getElementById(`field-${campoXml}`);
+            const inputField = document.getElementById(`modal-${campoXml}`);
+            
+            if (fieldContainer) {
+                fieldContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                fieldContainer.classList.add('campo-destacado');
+                setTimeout(() => fieldContainer.classList.remove('campo-destacado'), 2000);
+            }
+            
+            if (inputField) {
+                inputField.focus();
+                inputField.classList.add('input-destacado');
+                setTimeout(() => inputField.classList.remove('input-destacado'), 2000);
+            }
+        }, 400);
+    }
+}
+
+// Exportar función globalmente
+window.irACampoProducto = irACampoProducto;
 
 /**
  * Cierra el modal de producto
@@ -498,76 +922,128 @@ function cerrarModalProducto() {
 }
 
 /**
- * Guarda el producto desde el modal (nuevo o editado)
+ * Guarda el producto desde el modal (nuevo o editado) - TODOS los campos XML
  */
 function guardarProductoModal() {
-    // Obtener valores del formulario
-    const hsCode = document.getElementById('modal-hs-code')?.value.trim();
-    const nombre = document.getElementById('modal-nombre')?.value.trim();
-    const cantidad = document.getElementById('modal-cantidad')?.value;
+    // Forzar que cualquier input pendiente se procese
+    document.activeElement?.blur();
     
-    // Validar campos obligatorios
-    if (!hsCode) {
-        showNotification('El código HS es obligatorio', 'error');
-        document.getElementById('modal-hs-code')?.focus();
-        return;
-    }
-    
-    if (!nombre) {
-        showNotification('El nombre del producto es obligatorio', 'error');
-        document.getElementById('modal-nombre')?.focus();
-        return;
-    }
-    
-    if (!cantidad || parseFloat(cantidad) <= 0) {
-        showNotification('La cantidad debe ser mayor a 0', 'error');
-        document.getElementById('modal-cantidad')?.focus();
-        return;
-    }
-    
-    // Crear objeto de producto
-    const nuevoProducto = {
-        HSCode: hsCode,
-        ProductName: nombre,
-        descripcion_comercial: nombre,
-        Qty: parseFloat(cantidad),
-        cantidad: parseFloat(cantidad),
-        StatisticalUnitCode: document.getElementById('modal-unidad')?.value || 'KGM',
-        UnitMeasure: document.getElementById('modal-unidad')?.value || 'KGM',
-        FOBValue: parseFloat(document.getElementById('modal-valor-fob')?.value) || 0,
-        valor_fob: parseFloat(document.getElementById('modal-valor-fob')?.value) || 0,
-        NetWeight: parseFloat(document.getElementById('modal-peso-neto')?.value) || 0,
-        Weight: parseFloat(document.getElementById('modal-peso-neto')?.value) || 0,
-        peso_neto: parseFloat(document.getElementById('modal-peso-neto')?.value) || 0,
-        GrossWeight: parseFloat(document.getElementById('modal-peso-bruto')?.value) || 0,
-        peso_bruto: parseFloat(document.getElementById('modal-peso-bruto')?.value) || 0,
-        OriginCountryCode: document.getElementById('modal-pais-origen')?.value || '',
-        pais_origen: document.getElementById('modal-pais-origen')?.value || '',
-        Brand: document.getElementById('modal-marca')?.value.trim() || '',
-        marca: document.getElementById('modal-marca')?.value.trim() || '',
-        Model: document.getElementById('modal-modelo')?.value.trim() || '',
-        modelo: document.getElementById('modal-modelo')?.value.trim() || '',
-        descripcion_arancelaria: document.getElementById('modal-descripcion')?.value.trim() || '',
-        TariffDescription: document.getElementById('modal-descripcion')?.value.trim() || '',
-        ProductStatusCode: 'IC04-001',
-        TempProductYN: false,
-        OrganicYN: false,
-        _isManual: productoEditandoIndex === null
+    // Pequeño delay para asegurar que todos los valores estén actualizados
+    setTimeout(() => {
+        guardarProductoModalReal();
+    }, 50);
+}
+
+function guardarProductoModalReal() {
+    // Obtener valores del formulario - TODOS los campos XML
+    const getVal = (id) => {
+        const el = document.getElementById(id);
+        return el ? el.value.trim() : null; // null = campo no existe
     };
+    const getNum = (id) => {
+        const el = document.getElementById(id);
+        if (!el) return null;
+        const val = el.value.trim();
+        if (val === '') return null; // Campo vacío = no sobrescribir
+        const num = parseFloat(val);
+        return isNaN(num) ? null : num;
+    };
+    const getBool = (id) => {
+        const el = document.getElementById(id);
+        return el ? el.value === 'true' : false;
+    };
+    
+    const hsCode = getVal('modal-HSCode');
+    
+    // Validar campo obligatorio principal
+    if (!hsCode) {
+        showNotification('El código HS (HSCode) es obligatorio', 'error');
+        document.getElementById('modal-HSCode')?.focus();
+        return;
+    }
+    
+    // Crear objeto SOLO con campos que tienen valor (no sobrescribir con vacíos)
+    const camposEditados = {};
+    
+    // Helper para agregar solo si tiene valor
+    const addIfValue = (key, value) => {
+        if (value !== null && value !== undefined && value !== '') {
+            camposEditados[key] = value;
+        }
+    };
+    
+    // Campos obligatorios (siempre incluir si tienen valor)
+    addIfValue('HSCode', hsCode);
+    addIfValue('ProductStatusCode', getVal('modal-ProductStatusCode'));
+    camposEditados.TempProductYN = getBool('modal-TempProductYN');
+    camposEditados.OrganicYN = getBool('modal-OrganicYN');
+    
+    // Identificación
+    addIfValue('ProductCode', getVal('modal-ProductCode'));
+    addIfValue('ProductName', getVal('modal-ProductName'));
+    addIfValue('ProductDescription', getVal('modal-ProductDescription'));
+    addIfValue('ProductSpecification', getVal('modal-ProductSpecification'));
+    addIfValue('ProductYear', getVal('modal-ProductYear'));
+    addIfValue('ProductSerialNo', getVal('modal-ProductSerialNo'));
+    
+    // Marca y Modelo
+    addIfValue('BrandCode', getVal('modal-BrandCode'));
+    addIfValue('BrandName', getVal('modal-BrandName'));
+    addIfValue('ModelCode', getVal('modal-ModelCode'));
+    addIfValue('ModelName', getVal('modal-ModelName'));
+    
+    // Cantidades y Valores (solo si tienen valor numérico)
+    addIfValue('Qty', getNum('modal-Qty'));
+    addIfValue('UnitCode', getVal('modal-UnitCode'));
+    addIfValue('FOBValue', getNum('modal-FOBValue'));
+    addIfValue('Weight', getNum('modal-Weight'));
+    addIfValue('CustomerSalesPrice', getNum('modal-CustomerSalesPrice'));
+    
+    // Origen y Certificación
+    addIfValue('OriginCountry', getVal('modal-OriginCountry'));
+    camposEditados.CertificateOrignYN = getBool('modal-CertificateOrignYN');
+    addIfValue('CertificateOriginNo', getVal('modal-CertificateOriginNo'));
+    
+    // Alcohol
+    addIfValue('GradeAlcohol', getVal('modal-GradeAlcohol'));
+    
+    // Vehículos
+    addIfValue('VehicleType', getVal('modal-VehicleType'));
+    addIfValue('VehicleChassis', getVal('modal-VehicleChassis'));
+    addIfValue('VehicleColor', getVal('modal-VehicleColor'));
+    addIfValue('VehicleMotor', getVal('modal-VehicleMotor'));
+    addIfValue('VehicleCC', getVal('modal-VehicleCC'));
+    
+    // Observaciones
+    addIfValue('Remark', getVal('modal-Remark'));
     
     // Agregar o actualizar
     if (productoEditandoIndex !== null) {
-        // Actualizar existente
+        // Obtener producto original de _productosOriginales para no perder campos de la API
+        const productoOriginal = window._productosOriginales?.[productoEditandoIndex] || {};
+        const productoActual = productosClasificados[productoEditandoIndex] || {};
+        
+        // Fusionar: original (API) + actual + editados
+        // IMPORTANTE: Solo sobrescribir con campos que realmente fueron editados (tienen valor)
+        // Los campos originales de la API (Description, Quantity, UnitPriceUSD, etc.) se preservan
         productosClasificados[productoEditandoIndex] = {
-            ...productosClasificados[productoEditandoIndex],
-            ...nuevoProducto,
-            _isManual: productosClasificados[productoEditandoIndex]._isManual // Mantener estado manual
+            ...productoOriginal,  // Campos originales de la API
+            ...productoActual,    // Campos actuales 
+            ...camposEditados,    // Solo campos editados con valor
+            _isManual: productoActual._isManual || false,
+            _index: productoEditandoIndex
         };
-        showNotification(`Producto #${productoEditandoIndex + 1} actualizado`, 'success');
+        
+        console.log('📝 Producto actualizado:', productoEditandoIndex + 1);
+        console.log('   Original API:', Object.keys(productoOriginal));
+        console.log('   Campos editados:', Object.keys(camposEditados));
+        
+        showNotification(`Producto #${productoEditandoIndex + 1} actualizado correctamente`, 'success');
     } else {
         // Agregar nuevo
-        nuevoProducto._index = productosClasificados.length;
-        productosClasificados.push(nuevoProducto);
+        camposEditados._index = productosClasificados.length;
+        camposEditados._isManual = true;
+        productosClasificados.push(camposEditados);
         showNotification('Producto añadido correctamente', 'success');
     }
     
@@ -577,6 +1053,22 @@ function guardarProductoModal() {
     // Cerrar modal y re-renderizar
     cerrarModalProducto();
     actualizarVistaProductos();
+    
+    // Limpiar TODOS los errores visuales antes de revalidar
+    document.querySelectorAll('.detail-item.has-error').forEach(item => {
+        item.classList.remove('has-error');
+    });
+    document.querySelectorAll('.field-inline-alert').forEach(alert => alert.remove());
+    document.querySelectorAll('.input-error, .con-error').forEach(item => {
+        item.classList.remove('input-error', 'con-error');
+    });
+    
+    // Revalidar campos obligatorios
+    setTimeout(() => {
+        if (typeof validarYMostrarPanel === 'function') {
+            validarYMostrarPanel();
+        }
+    }, 100);
 }
 
 /**
@@ -622,8 +1114,8 @@ function eliminarProducto(index) {
 function actualizarVistaProductos() {
     const grid = document.getElementById('products-grid');
     if (!grid) {
-        // Si no existe el grid, re-renderizar todo
-        renderizarProductos({ ImpDeclarationProduct: productosClasificados });
+        // Si no existe el grid, re-renderizar todo PERO preservando los originales
+        renderizarProductos({ ImpDeclarationProduct: productosClasificados }, true);
         return;
     }
     
@@ -653,17 +1145,47 @@ function actualizarVistaProductos() {
 
 /**
  * Actualiza resultadoActual con los productos modificados
+ * Fusiona los datos originales con las ediciones para no perder información
  */
 function actualizarResultadoActual() {
     if (!window.resultadoActual) {
         window.resultadoActual = {};
     }
     
-    // Actualizar el array de productos
-    window.resultadoActual.ImpDeclarationProduct = productosClasificados.map(p => {
-        // Limpiar propiedades internas
-        const { _index, _isManual, ...productoLimpio } = p;
-        return productoLimpio;
+    // Obtener productos originales para fusionar
+    // IMPORTANTE: _productosOriginales tiene los campos originales de la API
+    const productosOriginales = window._productosOriginales || [];
+    
+    console.log('🔄 Actualizando resultadoActual...');
+    console.log('   productosClasificados:', productosClasificados.length);
+    console.log('   _productosOriginales:', productosOriginales.length);
+    
+    // Actualizar el array de productos fusionando datos originales con ediciones
+    window.resultadoActual.ImpDeclarationProduct = productosClasificados.map((p, idx) => {
+        // Limpiar propiedades internas del producto actual
+        const { _index, _isManual, ...productoActual } = p;
+        
+        // Obtener producto original si existe (también limpiar propiedades internas)
+        const productoOriginalRaw = productosOriginales[idx] || {};
+        const { _index: _oi, _isManual: _om, ...productoOriginal } = productoOriginalRaw;
+        
+        // FUSIÓN: original (API) + actual (incluye ediciones)
+        // El producto actual ya debería tener los campos originales + ediciones
+        // Pero por seguridad, fusionamos con el original
+        const productoFinal = {
+            ...productoOriginal,  // Campos originales de la API (Description, UnitPriceUSD, etc.)
+            ...productoActual     // Campos actuales/editados (tienen prioridad)
+        };
+        
+        // Debug para productos sin ProductName
+        if (!productoFinal.ProductName && !productoFinal.Description) {
+            console.warn(`⚠️ Producto ${idx + 1} sin nombre:`, {
+                original: Object.keys(productoOriginal),
+                actual: Object.keys(productoActual)
+            });
+        }
+        
+        return productoFinal;
     });
     
     // También actualizar editedClassification si existe
@@ -671,7 +1193,8 @@ function actualizarResultadoActual() {
         window.editedClassification = window.resultadoActual;
     }
     
-    console.log('📊 resultadoActual actualizado con', productosClasificados.length, 'productos');
+    console.log('📊 resultadoActual actualizado con', productosClasificados.length, 'productos (fusionados)');
+    console.log('📊 Ejemplo de producto fusionado:', window.resultadoActual.ImpDeclarationProduct[0]);
 }
 
 /**
@@ -773,33 +1296,41 @@ function extraerTodosLosCampos(producto, excluir = []) {
         // Identificación
         'HSCode': 'Código HS',
         'hs': 'Código HS',
+        'ProductCode': 'Código Producto',
         'ProductStatusCode': 'Estado Producto',
         'ItemNo': 'Número Item',
-        'LineNo': 'Línea',
+        'LineNo': 'Line Number',
         
         // Descripción
         'ProductName': 'Nombre Producto',
         'descripcion_comercial': 'Descripción Comercial',
         'item_name': 'Nombre Item',
-        'Description': 'Descripción',
+        'Description': 'Description',
         'descripcion_arancelaria': 'Descripción Arancelaria',
         'TariffDescription': 'Descripción Arancel',
+        'ProductDescription': 'Descripción Producto',
+        'ProductSpecification': 'Especificación',
         
-        // Cantidades
+        // Cantidades - Incluir campos de API
         'Qty': 'Cantidad',
+        'Quantity': 'Cantidad',
         'cantidad': 'Cantidad',
         'quantity': 'Cantidad',
         'StatisticalQty': 'Cantidad Estadística',
         'PackageQty': 'Cantidad Bultos',
         
-        // Unidades
+        // Unidades - Incluir campos de API
+        'UnitCode': 'Unidad',
+        'Unit': 'Unit',
         'UnitMeasure': 'Unidad Medida',
         'StatisticalUnitCode': 'Unidad Estadística',
         'unidad_medida_estadistica': 'Unidad Estadística',
         'PackageUnitCode': 'Unidad Empaque',
         
-        // Valores monetarios
+        // Valores monetarios - Incluir campos de API
         'FOBValue': 'Valor FOB',
+        'UnitPriceUSD': 'Unit Price USD',
+        'AmountUSD': 'Amount USD',
         'valor_fob': 'Valor FOB',
         'valor_unitario': 'Valor Unitario',
         'CIFValue': 'Valor CIF',
@@ -807,6 +1338,7 @@ function extraerTodosLosCampos(producto, excluir = []) {
         'TotalValue': 'Valor Total',
         'InsuranceValue': 'Valor Seguro',
         'FreightValue': 'Valor Flete',
+        'CustomerSalesPrice': 'Precio Venta',
         
         // Pesos
         'NetWeight': 'Peso Neto (kg)',
@@ -824,12 +1356,20 @@ function extraerTodosLosCampos(producto, excluir = []) {
         'pais_procedencia': 'País Procedencia',
         
         // Marca/Modelo
+        'BrandCode': 'Código Marca',
+        'BrandName': 'Marca',
         'Brand': 'Marca',
         'marca': 'Marca',
+        'ModelCode': 'Código Modelo',
+        'ModelName': 'Modelo',
         'Model': 'Modelo',
         'modelo': 'Modelo',
         'Specification': 'Especificación',
         'especificacion': 'Especificación',
+        
+        // Año y Serie
+        'ProductYear': 'Año Producto',
+        'ProductSerialNo': 'Número Serie',
         
         // Impuestos
         'DAI': 'DAI (%)',
@@ -839,12 +1379,24 @@ function extraerTodosLosCampos(producto, excluir = []) {
         'ISC': 'ISC (%)',
         'isc': 'ISC (%)',
         'TaxRate': 'Tasa Impuesto',
+        'GradeAlcohol': 'Grado Alcohol',
         
         // Booleanos
         'TempProductYN': 'Producto Temporal',
         'OrganicYN': 'Producto Orgánico',
+        'CertificateOrignYN': 'Certificate Orign Y N',
         'CertificateYN': 'Requiere Certificado',
         'UsedYN': 'Usado',
+        
+        // Certificados
+        'CertificateOriginNo': 'N° Certificado Origen',
+        
+        // Vehículos
+        'VehicleType': 'Tipo Vehículo',
+        'VehicleChassis': 'N° Chasis',
+        'VehicleColor': 'Color Vehículo',
+        'VehicleMotor': 'N° Motor',
+        'VehicleCC': 'Cilindraje CC',
         
         // Otros
         'Remark': 'Observaciones',
@@ -859,24 +1411,37 @@ function extraerTodosLosCampos(producto, excluir = []) {
     };
     
     // Campos que son valores monetarios
-    const camposMoney = ['FOBValue', 'valor_fob', 'valor_unitario', 'CIFValue', 'UnitPrice', 'TotalValue', 'InsuranceValue', 'FreightValue'];
+    const camposMoney = ['FOBValue', 'valor_fob', 'valor_unitario', 'CIFValue', 'UnitPrice', 'TotalValue', 
+                         'InsuranceValue', 'FreightValue', 'UnitPriceUSD', 'AmountUSD', 'CustomerSalesPrice'];
     
     // Campos que necesitan ancho completo (textos largos)
-    const camposLargos = ['ProductName', 'descripcion_comercial', 'Description', 'descripcion_arancelaria', 'TariffDescription', 'Remark', 'observaciones', 'Specification'];
+    const camposLargos = ['ProductName', 'descripcion_comercial', 'Description', 'descripcion_arancelaria', 
+                          'TariffDescription', 'Remark', 'observaciones', 'Specification', 'ProductDescription', 
+                          'ProductSpecification'];
     
-    // Orden preferido de campos
+    // Orden preferido de campos - incluir campos de API
     const ordenCampos = [
-        'ProductName', 'descripcion_comercial', 'item_name', 'Description',
-        'Qty', 'cantidad', 'StatisticalQty',
-        'FOBValue', 'valor_fob', 'UnitPrice', 'TotalValue',
-        'NetWeight', 'peso_neto', 'GrossWeight', 'peso_bruto',
-        'OriginCountryCode', 'pais_origen', 'ProvenanceCountryCode',
-        'Brand', 'marca', 'Model', 'modelo',
-        'UnitMeasure', 'StatisticalUnitCode',
+        // Descripción primero
+        'ProductName', 'Description', 'descripcion_comercial', 'item_name',
+        // Cantidades
+        'Qty', 'Quantity', 'cantidad', 'StatisticalQty',
+        // Valores
+        'FOBValue', 'UnitPriceUSD', 'AmountUSD', 'valor_fob', 'UnitPrice', 'TotalValue', 'CustomerSalesPrice',
+        // Unidades
+        'UnitCode', 'Unit', 'UnitMeasure', 'StatisticalUnitCode',
+        // Pesos
+        'Weight', 'NetWeight', 'peso_neto', 'GrossWeight', 'peso_bruto',
+        // Origen
+        'OriginCountry', 'OriginCountryCode', 'pais_origen', 'ProvenanceCountryCode',
+        // Estado
+        'ProductStatusCode', 'TempProductYN', 'OrganicYN', 'CertificateOrignYN',
+        // Marca/Modelo
+        'BrandName', 'Brand', 'marca', 'ModelName', 'Model', 'modelo',
+        // Otros
+        'ProductYear', 'ProductSerialNo', 'GradeAlcohol',
         'DAI', 'dai', 'ITBIS', 'itbis', 'ISC', 'isc',
         'Currency', 'Incoterm',
-        'TempProductYN', 'OrganicYN',
-        'Remark', 'observaciones'
+        'ProductDescription', 'ProductSpecification', 'Remark', 'observaciones'
     ];
     
     // Crear Set de campos ya procesados para evitar duplicados
@@ -1031,11 +1596,76 @@ function formatearValorCampo(key, value) {
     return escapeHtml(String(value));
 }
 
+/**
+ * Cambia el estado OrganicYN de TODOS los productos
+ * @param {boolean} esOrganico - true para marcar todos como orgánicos, false para desmarcar
+ */
+function toggleOrganicTodosProductos(esOrganico) {
+    console.log(`🌿 Cambiando OrganicYN de todos los productos a: ${esOrganico}`);
+    
+    // Actualizar cada producto en el array
+    productosClasificados.forEach((producto, index) => {
+        producto.OrganicYN = esOrganico;
+        productosClasificados[index] = producto;
+    });
+    
+    // Sincronizar con window
+    window.productosClasificados = productosClasificados;
+    
+    // También actualizar en resultadoActual si existe
+    if (window.resultadoActual && window.resultadoActual.ImpDeclarationProduct) {
+        window.resultadoActual.ImpDeclarationProduct.forEach((producto, index) => {
+            producto.OrganicYN = esOrganico;
+        });
+    }
+    
+    // Re-renderizar las tarjetas de productos para reflejar el cambio
+    actualizarVistaProductos();
+    
+    // Mostrar notificación
+    const mensaje = esOrganico 
+        ? `✅ Todos los productos (${productosClasificados.length}) marcados como ORGÁNICOS`
+        : `✅ Todos los productos (${productosClasificados.length}) marcados como NO orgánicos`;
+    
+    if (typeof showNotification === 'function') {
+        showNotification(mensaje, 'success');
+    } else {
+        console.log(mensaje);
+    }
+}
+
+/**
+ * Actualiza la vista de productos sin perder el estado del checkbox
+ */
+function actualizarVistaProductos() {
+    const grid = document.getElementById('products-grid');
+    if (!grid) return;
+    
+    // Re-renderizar solo el grid de productos
+    grid.innerHTML = `
+        ${productosClasificados.map((prod, idx) => renderizarTarjetaProducto(prod, idx)).join('')}
+        <!-- Tarjeta para añadir -->
+        <div class="product-card-add" onclick="abrirModalAgregarProducto()">
+            <i class="fas fa-plus-circle"></i>
+            <span>Añadir Producto Manual</span>
+            <small>Click para agregar un nuevo item</small>
+        </div>
+    `;
+    
+    // Actualizar resumen de totales
+    const resumenContainer = document.querySelector('.products-totals');
+    if (resumenContainer) {
+        resumenContainer.outerHTML = renderizarResumenTotales(productosClasificados);
+    }
+}
+
 // Exportar funciones globalmente
 window.renderizarProductos = renderizarProductos;
 window.abrirModalAgregarProducto = abrirModalAgregarProducto;
 window.editarProductoCompleto = editarProductoCompleto;
 window.cerrarModalProducto = cerrarModalProducto;
+window.toggleOrganicTodosProductos = toggleOrganicTodosProductos;
+window.actualizarVistaProductos = actualizarVistaProductos;
 window.guardarProductoModal = guardarProductoModal;
 window.duplicarProducto = duplicarProducto;
 window.eliminarProducto = eliminarProducto;

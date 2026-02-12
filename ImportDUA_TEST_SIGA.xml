@@ -1,0 +1,357 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ImportDUA xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://aduanas.gob.do/XSD/ImportClearance/ImportDUA.xsd">
+<ImpDeclaration xmlns="">
+<DeclarationDate>2026-01-17T00:00:00</DeclarationDate>
+<ClearanceType>IC38-002</ClearanceType>
+<AreaCode>10150</AreaCode>
+<FormNo>40001</FormNo>
+<BLNo>PRELIQUIDACION</BLNo>
+<ManifestNo/>
+<ConsigneeCode>RNC214101830141</ConsigneeCode>
+<ConsigneeName>AGENCIA TECNICA ADUANAL CARLOS NOUEL &amp; ASOCIADOS SRL</ConsigneeName>
+<ConsigneeNationality>214</ConsigneeNationality>
+<CargoControlNo>SN</CargoControlNo>
+<CommercialInvoiceNo/>
+<DestinationLocationCode/>
+<EntryPort/>
+<DepartureCountryCode/>
+<TransportCompanyCode/>
+<TransportNationality/>
+<TransportMethod/>
+<EntryPlanDate>2000-01-01T12:00:00</EntryPlanDate>
+<EntryDate/>
+<ImporterCode>RNC214101830141</ImporterCode>
+<ImporterName>AGENCIA TECNICA ADUANAL CARLOS NOUEL &amp; ASOCIADOS SRL</ImporterName>
+<ImporterNationality>214</ImporterNationality>
+<BrokerEmployeeCode/>
+<BrokerCompanyCode/>
+<DeclarantCode>RNC214101830141</DeclarantCode>
+<DeclarantName>AGENCIA TECNICA ADUANAL CARLOS NOUEL &amp; ASOCIADOS SRL</DeclarantName>
+<DeclarantNationality>214</DeclarantNationality>
+<RegimenCode>1</RegimenCode>
+<AgreementCode/>
+<TotalFOB>15847.3000</TotalFOB>
+<InsuranceValue>158.0000</InsuranceValue>
+<FreightValue>1200.0000</FreightValue>
+<OtherValue>0.0000</OtherValue>
+<TotalCIF>17205.3000</TotalCIF>
+<TotalWeight>500.00</TotalWeight>
+<NetWeight>450.00</NetWeight>
+<Remark/>
+<ImpDeclarationSupplier>
+<ForeignSupplierName>PORCELAKER CERAMICA, S.A</ForeignSupplierName>
+<ForeignSupplierCode>TID724C103085</ForeignSupplierCode>
+<ForeignSupplierNationality>548</ForeignSupplierNationality>
+</ImpDeclarationSupplier>
+<ImpDeclarationProduct>
+<HSCode>68022100</HSCode>
+<ProductCode>1</ProductCode>
+<ProductName>PORCELAINI</ProductName>
+<BrandCode/>
+<BrandName>N/A</BrandName>
+<ModelCode/>
+<ModelName>N/A</ModelName>
+<ProductStatusCode>IC04-001</ProductStatusCode>
+<ProductYear/>
+<FOBValue>380.0000</FOBValue>
+<UnitCode>8</UnitCode>
+<Qty>12.0000</Qty>
+<Weight>1</Weight>
+<ProductSpecification/>
+<TempProductYN>true</TempProductYN>
+<CertificateOrignYN>false</CertificateOrignYN>
+<CertificateOriginNo/>
+<OriginCountry>548</OriginCountry>
+<OrganicYN>false</OrganicYN>
+<GradeAlcohol>0.00</GradeAlcohol>
+<CustomerSalesPrice>0.0000</CustomerSalesPrice>
+<ProductSerialNo/>
+<VehicleType/>
+<VehicleChassis/>
+<VehicleColor/>
+<VehicleMotor/>
+<VehicleCC>0</VehicleCC>
+<ProductDescription>PORCELAIN TILE 1200X600X10MM PREMIUM MARBLE</ProductDescription>
+<Remark>PORCELAIN TILE 1200X600X10MM PREMIUM MARBLE</Remark>
+</ImpDeclarationProduct>
+<ImpDeclarationProduct>
+<HSCode>68022100</HSCode>
+<ProductCode>2</ProductCode>
+<ProductName>PORCELAIN TILE 600X600X9MM NATURAL STONE</ProductName>
+<BrandCode/>
+<BrandName>N/A</BrandName>
+<ModelCode/>
+<ModelName>N/A</ModelName>
+<ProductStatusCode>IC04-001</ProductStatusCode>
+<ProductYear/>
+<FOBValue>290.0000</FOBValue>
+<UnitCode>8</UnitCode>
+<Qty>18.0000</Qty>
+<Weight>1</Weight>
+<ProductSpecification/>
+<TempProductYN>true</TempProductYN>
+<CertificateOrignYN>false</CertificateOrignYN>
+<CertificateOriginNo/>
+<OriginCountry>548</OriginCountry>
+<OrganicYN>false</OrganicYN>
+<GradeAlcohol>0.00</GradeAlcohol>
+<CustomerSalesPrice>0.0000</CustomerSalesPrice>
+<ProductSerialNo/>
+<VehicleType/>
+<VehicleChassis/>
+<VehicleColor/>
+<VehicleMotor/>
+<VehicleCC>0</VehicleCC>
+<ProductDescription>PORCELAIN TILE 600X600X9MM NATURAL STONE</ProductDescription>
+<Remark>PORCELAIN TILE 600X600X9MM NATURAL STONE</Remark>
+</ImpDeclarationProduct>
+<ImpDeclarationProduct>
+<HSCode>68022100</HSCode>
+<ProductCode>3</ProductCode>
+<ProductName>PORCELAIN TILE 300X600X8MM WHITE MATTE</ProductName>
+<BrandCode/>
+<BrandName>N/A</BrandName>
+<ModelCode/>
+<ModelName>N/A</ModelName>
+<ProductStatusCode>IC04-001</ProductStatusCode>
+<ProductYear/>
+<FOBValue>2.4000</FOBValue>
+<UnitCode>8</UnitCode>
+<Qty>250.0000</Qty>
+<Weight>1</Weight>
+<ProductSpecification/>
+<TempProductYN>true</TempProductYN>
+<CertificateOrignYN>false</CertificateOrignYN>
+<CertificateOriginNo/>
+<OriginCountry>548</OriginCountry>
+<OrganicYN>false</OrganicYN>
+<GradeAlcohol>0.00</GradeAlcohol>
+<CustomerSalesPrice>0.0000</CustomerSalesPrice>
+<ProductSerialNo/>
+<VehicleType/>
+<VehicleChassis/>
+<VehicleColor/>
+<VehicleMotor/>
+<VehicleCC>0</VehicleCC>
+<ProductDescription>PORCELAIN TILE 300X600X8MM WHITE MATTE</ProductDescription>
+<Remark>PORCELAIN TILE 300X600X8MM WHITE MATTE</Remark>
+</ImpDeclarationProduct>
+<ImpDeclarationProduct>
+<HSCode>68022100</HSCode>
+<ProductCode>4</ProductCode>
+<ProductName>PORCELAIN TILE 450X900X10MM GRAY POLISHED</ProductName>
+<BrandCode/>
+<BrandName>N/A</BrandName>
+<ModelCode/>
+<ModelName>N/A</ModelName>
+<ProductStatusCode>IC04-001</ProductStatusCode>
+<ProductYear/>
+<FOBValue>2.8500</FOBValue>
+<UnitCode>8</UnitCode>
+<Qty>180.0000</Qty>
+<Weight>1</Weight>
+<ProductSpecification/>
+<TempProductYN>true</TempProductYN>
+<CertificateOrignYN>false</CertificateOrignYN>
+<CertificateOriginNo/>
+<OriginCountry>548</OriginCountry>
+<OrganicYN>false</OrganicYN>
+<GradeAlcohol>0.00</GradeAlcohol>
+<CustomerSalesPrice>0.0000</CustomerSalesPrice>
+<ProductSerialNo/>
+<VehicleType/>
+<VehicleChassis/>
+<VehicleColor/>
+<VehicleMotor/>
+<VehicleCC>0</VehicleCC>
+<ProductDescription>PORCELAIN TILE 450X900X10MM GRAY POLISHED</ProductDescription>
+<Remark>PORCELAIN TILE 450X900X10MM GRAY POLISHED</Remark>
+</ImpDeclarationProduct>
+<ImpDeclarationProduct>
+<HSCode>68022100</HSCode>
+<ProductCode>5</ProductCode>
+<ProductName>PORCELAIN TILE 600X1200X12MM CREAM FINISH</ProductName>
+<BrandCode/>
+<BrandName>N/A</BrandName>
+<ModelCode/>
+<ModelName>N/A</ModelName>
+<ProductStatusCode>IC04-001</ProductStatusCode>
+<ProductYear/>
+<FOBValue>0.8500</FOBValue>
+<UnitCode>8</UnitCode>
+<Qty>500.0000</Qty>
+<Weight>1</Weight>
+<ProductSpecification/>
+<TempProductYN>true</TempProductYN>
+<CertificateOrignYN>false</CertificateOrignYN>
+<CertificateOriginNo/>
+<OriginCountry>548</OriginCountry>
+<OrganicYN>false</OrganicYN>
+<GradeAlcohol>0.00</GradeAlcohol>
+<CustomerSalesPrice>0.0000</CustomerSalesPrice>
+<ProductSerialNo/>
+<VehicleType/>
+<VehicleChassis/>
+<VehicleColor/>
+<VehicleMotor/>
+<VehicleCC>0</VehicleCC>
+<ProductDescription>PORCELAIN TILE 600X1200X12MM CREAM FINISH</ProductDescription>
+<Remark>PORCELAIN TILE 600X1200X12MM CREAM FINISH</Remark>
+</ImpDeclarationProduct>
+<ImpDeclarationProduct>
+<HSCode>68022100</HSCode>
+<ProductCode>6</ProductCode>
+<ProductName>PORCELAIN TILE 800X800X11MM RUSTIC BROWN</ProductName>
+<BrandCode/>
+<BrandName>N/A</BrandName>
+<ModelCode/>
+<ModelName>N/A</ModelName>
+<ProductStatusCode>IC04-001</ProductStatusCode>
+<ProductYear/>
+<FOBValue>0.8000</FOBValue>
+<UnitCode>8</UnitCode>
+<Qty>450.0000</Qty>
+<Weight>1</Weight>
+<ProductSpecification/>
+<TempProductYN>true</TempProductYN>
+<CertificateOrignYN>false</CertificateOrignYN>
+<CertificateOriginNo/>
+<OriginCountry>548</OriginCountry>
+<OrganicYN>false</OrganicYN>
+<GradeAlcohol>0.00</GradeAlcohol>
+<CustomerSalesPrice>0.0000</CustomerSalesPrice>
+<ProductSerialNo/>
+<VehicleType/>
+<VehicleChassis/>
+<VehicleColor/>
+<VehicleMotor/>
+<VehicleCC>0</VehicleCC>
+<ProductDescription>PORCELAIN TILE 800X800X11MM RUSTIC BROWN</ProductDescription>
+<Remark>PORCELAIN TILE 800X800X11MM RUSTIC BROWN</Remark>
+</ImpDeclarationProduct>
+<ImpDeclarationProduct>
+<HSCode>68022100</HSCode>
+<ProductCode>7</ProductCode>
+<ProductName>PORCELAIN TILE 1000X1000X15MM LUXURY BLACK</ProductName>
+<BrandCode/>
+<BrandName>N/A</BrandName>
+<ModelCode/>
+<ModelName>N/A</ModelName>
+<ProductStatusCode>IC04-001</ProductStatusCode>
+<ProductYear/>
+<FOBValue>28.0000</FOBValue>
+<UnitCode>8</UnitCode>
+<Qty>35.0000</Qty>
+<Weight>1</Weight>
+<ProductSpecification/>
+<TempProductYN>true</TempProductYN>
+<CertificateOrignYN>false</CertificateOrignYN>
+<CertificateOriginNo/>
+<OriginCountry>548</OriginCountry>
+<OrganicYN>false</OrganicYN>
+<GradeAlcohol>0.00</GradeAlcohol>
+<CustomerSalesPrice>0.0000</CustomerSalesPrice>
+<ProductSerialNo/>
+<VehicleType/>
+<VehicleChassis/>
+<VehicleColor/>
+<VehicleMotor/>
+<VehicleCC>0</VehicleCC>
+<ProductDescription>PORCELAIN TILE 1000X1000X15MM LUXURY BLACK</ProductDescription>
+<Remark>PORCELAIN TILE 1000X1000X15MM LUXURY BLACK</Remark>
+</ImpDeclarationProduct>
+<ImpDeclarationProduct>
+<HSCode>68022100</HSCode>
+<ProductCode>8</ProductCode>
+<ProductName>PORCELAIN TILE 300X300X8MM MOSAIC BLUE</ProductName>
+<BrandCode/>
+<BrandName>N/A</BrandName>
+<ModelCode/>
+<ModelName>N/A</ModelName>
+<ProductStatusCode>IC04-001</ProductStatusCode>
+<ProductYear/>
+<FOBValue>42.0000</FOBValue>
+<UnitCode>8</UnitCode>
+<Qty>22.0000</Qty>
+<Weight>1</Weight>
+<ProductSpecification/>
+<TempProductYN>true</TempProductYN>
+<CertificateOrignYN>false</CertificateOrignYN>
+<CertificateOriginNo/>
+<OriginCountry>548</OriginCountry>
+<OrganicYN>false</OrganicYN>
+<GradeAlcohol>0.00</GradeAlcohol>
+<CustomerSalesPrice>0.0000</CustomerSalesPrice>
+<ProductSerialNo/>
+<VehicleType/>
+<VehicleChassis/>
+<VehicleColor/>
+<VehicleMotor/>
+<VehicleCC>0</VehicleCC>
+<ProductDescription>PORCELAIN TILE 300X300X8MM MOSAIC BLUE</ProductDescription>
+<Remark>PORCELAIN TILE 300X300X8MM MOSAIC BLUE</Remark>
+</ImpDeclarationProduct>
+<ImpDeclarationProduct>
+<HSCode>68022100</HSCode>
+<ProductCode>9</ProductCode>
+<ProductName>PORCELAIN TILE 600X600X10MM ANTI-SLIP OUTDOOR</ProductName>
+<BrandCode/>
+<BrandName>N/A</BrandName>
+<ModelCode/>
+<ModelName>N/A</ModelName>
+<ProductStatusCode>IC04-001</ProductStatusCode>
+<ProductYear/>
+<FOBValue>18.5000</FOBValue>
+<UnitCode>8</UnitCode>
+<Qty>60.0000</Qty>
+<Weight>1</Weight>
+<ProductSpecification/>
+<TempProductYN>true</TempProductYN>
+<CertificateOrignYN>false</CertificateOrignYN>
+<CertificateOriginNo/>
+<OriginCountry>548</OriginCountry>
+<OrganicYN>false</OrganicYN>
+<GradeAlcohol>0.00</GradeAlcohol>
+<CustomerSalesPrice>0.0000</CustomerSalesPrice>
+<ProductSerialNo/>
+<VehicleType/>
+<VehicleChassis/>
+<VehicleColor/>
+<VehicleMotor/>
+<VehicleCC>0</VehicleCC>
+<ProductDescription>PORCELAIN TILE 600X600X10MM ANTI-SLIP OUTDOOR</ProductDescription>
+<Remark>PORCELAIN TILE 600X600X10MM ANTI-SLIP OUTDOOR</Remark>
+</ImpDeclarationProduct>
+<ImpDeclarationProduct>
+<HSCode>68022100</HSCode>
+<ProductCode>10</ProductCode>
+<ProductName>PORCELAIN TILE 400X800X9MM WOOD LOOK FINISH</ProductName>
+<BrandCode/>
+<BrandName>N/A</BrandName>
+<ModelCode/>
+<ModelName>N/A</ModelName>
+<ProductStatusCode>IC04-001</ProductStatusCode>
+<ProductYear/>
+<FOBValue>24.0000</FOBValue>
+<UnitCode>8</UnitCode>
+<Qty>45.0000</Qty>
+<Weight>1</Weight>
+<ProductSpecification/>
+<TempProductYN>true</TempProductYN>
+<CertificateOrignYN>false</CertificateOrignYN>
+<CertificateOriginNo/>
+<OriginCountry>548</OriginCountry>
+<OrganicYN>false</OrganicYN>
+<GradeAlcohol>0.00</GradeAlcohol>
+<CustomerSalesPrice>0.0000</CustomerSalesPrice>
+<ProductSerialNo/>
+<VehicleType/>
+<VehicleChassis/>
+<VehicleColor/>
+<VehicleMotor/>
+<VehicleCC>0</VehicleCC>
+<ProductDescription>PORCELAIN TILE 400X800X9MM WOOD LOOK FINISH</ProductDescription>
+<Remark>PORCELAIN TILE 400X800X9MM WOOD LOOK FINISH</Remark>
+</ImpDeclarationProduct>
+</ImpDeclaration>
+</ImportDUA>

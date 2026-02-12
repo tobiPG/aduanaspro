@@ -1079,43 +1079,44 @@ let historialPorPagina = 50;
 
 async function cargarHistorialAdmin() {
     try {
-        const empresaFiltro = document.getElementById('filter-historial-empresa').value;
+        const empresaSelect = document.getElementById('filter-historial-empresa');
+        // Si el filtro de empresas no está cargado, cargarlo primero y salir
+        if (!empresaSelect || empresaSelect.options.length <= 1) {
+            await cargarEmpresasParaFiltro();
+            return;
+        }
+        const empresaFiltro = empresaSelect.value;
+        if (!empresaFiltro) {
+            mostrarHistorialAdmin([]);
+            mostrarEstadisticasHistorial({});
+            showNotification('Selecciona una empresa para ver el historial', 'info');
+            return;
+        }
         const tipoFiltro = document.getElementById('filter-historial-tipo').value;
         const desdeFiltro = document.getElementById('filter-historial-desde').value;
         const hastaFiltro = document.getElementById('filter-historial-hasta').value;
-        
         // Construir query params
         const params = new URLSearchParams({
             pagina: historialPaginaActual,
-            limite: historialPorPagina
+            limite: historialPorPagina,
+            empresa_id: empresaFiltro
         });
-        
-        if (empresaFiltro) params.append('empresa_id', empresaFiltro);
         if (tipoFiltro) params.append('tipo_operacion', tipoFiltro);
         if (desdeFiltro) params.append('desde', desdeFiltro);
         if (hastaFiltro) params.append('hasta', hastaFiltro);
-        
         const response = await fetch(`${API_BASE_URL}/api/admin/historial?${params}`, {
             headers: {
                 'Authorization': `Bearer ${authToken}`
             }
         });
-        
         const data = await response.json();
-        
         if (data.success) {
             historialDataAdmin = data.clasificaciones;
             mostrarHistorialAdmin(data.clasificaciones);
             mostrarEstadisticasHistorial(data.estadisticas);
-            
-            // Cargar empresas en el filtro si está vacío
-            if (document.getElementById('filter-historial-empresa').options.length === 1) {
-                await cargarEmpresasParaFiltro();
-            }
         } else {
             showNotification(data.mensaje || 'Error al cargar historial', 'error');
         }
-        
     } catch (error) {
         console.error('Error cargando historial admin:', error);
         showNotification('Error al cargar historial', 'error');
@@ -1141,7 +1142,6 @@ function mostrarHistorialAdmin(clasificaciones) {
         const tipo = clf.tipo_operacion === 'import' ? '📥 Import' : '📤 Export';
         const tokens = clf.tokens_consumidos ? clf.tokens_consumidos.toLocaleString() : '0';
         const productos = clf.productos?.length || 0;
-        
         return `
             <tr>
                 <td>${fecha}</td>
@@ -1162,11 +1162,36 @@ function mostrarHistorialAdmin(clasificaciones) {
                         <button class="btn-icon btn-download" onclick="descargarJSONAdmin('${clf.clasificacion_id}')" title="Descargar JSON">
                             <i class="fas fa-file-alt"></i>
                         </button>
+                        <button class="btn-icon btn-delete" onclick="eliminarClasificacionAdmin('${clf.clasificacion_id}')" title="Eliminar clasificación">
+                            <i class="fas fa-trash"></i>
+                        </button>
                     </div>
                 </td>
             </tr>
         `;
     }).join('');
+}
+
+async function eliminarClasificacionAdmin(clasificacionId) {
+    if (!confirm('¿Seguro que deseas eliminar esta clasificación? Esta acción no se puede deshacer.')) return;
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/admin/historial/${clasificacionId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        const data = await response.json();
+        if (data.success) {
+            showNotification('Clasificación eliminada', 'success');
+            cargarHistorialAdmin();
+        } else {
+            showNotification(data.mensaje || 'Error al eliminar', 'error');
+        }
+    } catch (error) {
+        console.error('Error eliminando clasificación:', error);
+        showNotification('Error de conexión', 'error');
+    }
 }
 
 function mostrarEstadisticasHistorial(stats) {
@@ -1344,19 +1369,17 @@ function cerrarModalDetalleAdmin() {
 }
 
 async function descargarXMLAdmin(clasificacionId) {
-    if (!resultadoActualAdmin) {
-        // Cargar el resultado si no está en memoria
-        await cargarResultadoParaDescarga(clasificacionId);
-    }
-    
-    if (!resultadoActualAdmin) {
-        showNotification('No se pudo cargar el resultado', 'error');
-        return;
-    }
-    
     try {
-        // Usar la función convertToXML del script.js global
-        const xml = convertToXML(resultadoActualAdmin, 'ImportDUA');
+        const response = await fetch(`${API_BASE_URL}/api/admin/historial/${clasificacionId}/xml`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        if (!response.ok) {
+            showNotification('No se pudo descargar el XML', 'error');
+            return;
+        }
+        const xml = await response.text();
         const blob = new Blob([xml], { type: 'application/xml' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1366,11 +1389,10 @@ async function descargarXMLAdmin(clasificacionId) {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        
         showNotification('XML descargado exitosamente', 'success');
     } catch (error) {
         console.error('Error descargando XML:', error);
-        showNotification('Error al generar XML', 'error');
+        showNotification('Error al descargar XML', 'error');
     }
 }
 

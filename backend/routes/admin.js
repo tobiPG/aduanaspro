@@ -1,9 +1,111 @@
+
 const express = require('express');
 const AdminService = require('../services/adminService');
 const { verificarAuthYAdmin } = require('../middleware/adminAuth');
 const { strictLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
+
+/**
+ * DELETE /api/admin/historial/:clasificacion_id
+ * Eliminar una clasificación (admin)
+ */
+router.delete('/historial/:clasificacion_id', verificarAuthYAdmin, async (req, res) => {
+    try {
+        const { clasificacion_id } = req.params;
+        const db = require('../config/database').getDB();
+        const result = await db.collection('clasificaciones').deleteOne({ clasificacion_id });
+        if (result.deletedCount === 1) {
+            res.json({ success: true });
+        } else {
+            res.status(404).json({ success: false, mensaje: 'Clasificación no encontrada' });
+        }
+    } catch (error) {
+        console.error('Error eliminando clasificación admin:', error);
+        res.status(500).json({ success: false, mensaje: 'Error interno del servidor' });
+    }
+});
+/**
+ * GET /api/admin/historial/:clasificacion_id/xml
+ * Descargar el XML de una clasificación (admin)
+ */
+router.get('/historial/:clasificacion_id/xml', verificarAuthYAdmin, async (req, res) => {
+    try {
+        const { clasificacion_id } = req.params;
+        const HistorialService = require('../services/historialService');
+        // Buscar la clasificación sin filtrar por empresa
+        const db = require('../config/database').getDB();
+        const clasificacion = await db.collection('clasificaciones').findOne({ clasificacion_id });
+        if (!clasificacion) {
+            return res.status(404).json({
+                success: false,
+                error: 'not_found',
+                mensaje: 'Clasificación no encontrada.'
+            });
+        }
+        // El XML está en clasificacion.resultado.xml (ajustar si la estructura es diferente)
+        const xml = clasificacion.resultado?.xml;
+        if (!xml) {
+            return res.status(404).json({
+                success: false,
+                error: 'xml_not_found',
+                mensaje: 'No se encontró el XML en la clasificación.'
+            });
+        }
+        res.setHeader('Content-Type', 'application/xml');
+        res.setHeader('Content-Disposition', `attachment; filename="${clasificacion.nombre_archivo || 'clasificacion'}.xml"`);
+        res.send(xml);
+    } catch (error) {
+        console.error('Error en descarga de XML admin:', error);
+        res.status(500).json({
+            success: false,
+            error: 'server_error',
+            mensaje: 'Error interno del servidor.'
+        });
+    }
+});
+/**
+ * GET /api/admin/historial
+ * Consultar historial de cualquier empresa (admin)
+ * Query params: empresa_id, pagina, limite, busqueda, tipo_operacion, desde, hasta
+ */
+router.get('/historial', verificarAuthYAdmin, async (req, res) => {
+    try {
+        const { empresa_id, pagina, limite, busqueda, tipo_operacion, desde, hasta } = req.query;
+        if (!empresa_id) {
+            return res.status(400).json({
+                success: false,
+                error: 'missing_empresa_id',
+                mensaje: 'El parámetro empresa_id es obligatorio.'
+            });
+        }
+        // Reutilizar lógica de historialService
+        const HistorialService = require('../services/historialService');
+        const opciones = {
+            pagina: pagina ? parseInt(pagina) : 1,
+            limite: limite ? parseInt(limite) : 50,
+            busqueda: busqueda || '',
+            tipoOperacion: tipo_operacion || null,
+            desde: desde || null,
+            hasta: hasta || null
+        };
+        const resultado = await HistorialService.obtenerHistorial(empresa_id, opciones);
+        if (resultado.success) {
+            res.status(200).json(resultado);
+        } else {
+            res.status(500).json({
+                error: resultado.error,
+                mensaje: 'Error al obtener el historial'
+            });
+        }
+    } catch (error) {
+        console.error('Error en endpoint admin/historial:', error);
+        res.status(500).json({
+            error: 'server_error',
+            mensaje: 'Error interno del servidor.'
+        });
+    }
+});
 
 // Todas las rutas requieren autenticación de administrador
 // ==================== DASHBOARD Y ESTADÍSTICAS ====================
