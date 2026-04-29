@@ -748,9 +748,28 @@ async function verDetalleClasificacion(clasificacionId) {
         // Guardar resultado en variable global para edición y exportación
         // Buscar productos en todas las posibles ubicaciones
         let productosEncontrados = [];
+        let headerData = {}; // Para guardar datos generales de la factura
         
-        // Intentar obtener productos de varias fuentes
-        if (clf.resultado?.ImpDeclarationProduct?.length > 0) {
+        // NUEVO: Manejar estructura anidada ImportDUA.ImpDeclaration del GPT
+        if (clf.resultado?.ImportDUA?.ImpDeclaration?.ImpDeclarationProduct) {
+            const impDeclaration = clf.resultado.ImportDUA.ImpDeclaration;
+            const products = impDeclaration.ImpDeclarationProduct;
+            productosEncontrados = Array.isArray(products) ? products : [products];
+            console.log('✅ Productos encontrados en clf.resultado.ImportDUA.ImpDeclaration.ImpDeclarationProduct');
+            
+            // Extraer datos del header (factura)
+            headerData = {
+                CommercialInvoiceNo: impDeclaration.CommercialInvoiceNo,
+                DeclarationDate: impDeclaration.DeclarationDate,
+                TotalFOB: impDeclaration.TotalFOB,
+                TotalCIF: impDeclaration.TotalCIF,
+                FreightValue: impDeclaration.FreightValue,
+                InsuranceValue: impDeclaration.InsuranceValue,
+                TotalWeight: impDeclaration.TotalWeight,
+                ImpDeclarationSupplier: impDeclaration.ImpDeclarationSupplier
+            };
+            console.log('📋 Datos del header extraídos:', headerData);
+        } else if (clf.resultado?.ImpDeclarationProduct?.length > 0) {
             productosEncontrados = clf.resultado.ImpDeclarationProduct;
             console.log('✅ Productos encontrados en clf.resultado.ImpDeclarationProduct');
         } else if (clf.resultado?.productos?.length > 0) {
@@ -768,12 +787,22 @@ async function verDetalleClasificacion(clasificacionId) {
         
         // Construir resultadoActual con estructura correcta
         if (clf.resultado && typeof clf.resultado === 'object' && !Array.isArray(clf.resultado)) {
-            resultadoActual = {
-                ...clf.resultado,
-                ImpDeclarationProduct: productosEncontrados
-            };
+            // Si tiene estructura ImportDUA, extraerla correctamente
+            if (clf.resultado.ImportDUA?.ImpDeclaration) {
+                resultadoActual = {
+                    ...clf.resultado.ImportDUA.ImpDeclaration,
+                    ImpDeclarationProduct: productosEncontrados
+                };
+            } else {
+                resultadoActual = {
+                    ...clf.resultado,
+                    ...headerData,
+                    ImpDeclarationProduct: productosEncontrados
+                };
+            }
         } else {
             resultadoActual = {
+                ...headerData,
                 ImpDeclarationProduct: productosEncontrados,
                 productos: productosEncontrados,
                 tipo_operacion: clf.tipo_operacion,
@@ -797,7 +826,7 @@ async function verDetalleClasificacion(clasificacionId) {
         let productosHTML = '';
         
         // Usar productos del resultado completo si están disponibles
-        const productosData = clf.resultado?.ImpDeclarationProduct || clf.productos || [];
+        const productosData = productosEncontrados.length > 0 ? productosEncontrados : (clf.resultado?.ImpDeclarationProduct || clf.productos || []);
         
         if (productosData && productosData.length > 0) {
             productosHTML = productosData.map((prod, idx) => {
@@ -1179,9 +1208,23 @@ function hideLoading() {
 
 function showResults(data, tokensInfo = null) {
     hideLoading();
-    resultadoActual = data;
+    
+    // NUEVO: Manejar estructura anidada ImportDUA.ImpDeclaration del GPT
+    let processedData = data;
+    if (data?.ImportDUA?.ImpDeclaration) {
+        console.log('🔄 Detectada estructura anidada ImportDUA.ImpDeclaration - extrayendo datos...');
+        const impDeclaration = data.ImportDUA.ImpDeclaration;
+        const products = impDeclaration.ImpDeclarationProduct;
+        processedData = {
+            ...impDeclaration,
+            ImpDeclarationProduct: Array.isArray(products) ? products : (products ? [products] : [])
+        };
+        console.log('✅ Datos extraídos de estructura anidada:', processedData);
+    }
+    
+    resultadoActual = processedData;
     // IMPORTANTE: Sincronizar con window.resultadoActual
-    window.resultadoActual = data;
+    window.resultadoActual = processedData;
     console.log('📥 Clasificación recibida y guardada en memoria:', resultadoActual);
     
     const resultsDiv = document.getElementById('results');
@@ -1826,7 +1869,7 @@ document.addEventListener('DOMContentLoaded', function() {
 // Funciones principales
 async function clasificarTexto() {
     const producto = document.getElementById('producto-texto').value.trim();
-    const soloHS = document.getElementById('solo-hs-texto').checked;
+    const obtenerCodigosArancelarios = document.getElementById('solo-hs-texto').checked;
     
     if (!producto) {
         showError('Por favor, ingresa la descripción del producto a clasificar.');
@@ -1862,7 +1905,8 @@ async function clasificarTexto() {
             headers: headers,
             body: JSON.stringify({
                 producto: producto,
-                solo_hs: soloHS
+                obtener_hs: obtenerCodigosArancelarios,
+                solo_hs: !obtenerCodigosArancelarios  // Soporte legacy (invertido)
             }),
             signal: controller.signal
         });
@@ -1999,7 +2043,7 @@ async function clasificarArchivo() {
 
 // Clasificación tradicional (para archivos pequeños o no-PDF)
 async function clasificarArchivoTradicional() {
-    const soloHS = document.getElementById('solo-hs-archivo').checked;
+    const obtenerCodigosArancelarios = document.getElementById('solo-hs-archivo').checked;
     
     console.log('📤 Clasificando archivo (modo tradicional):', archivoSeleccionado.name);
     
@@ -2008,7 +2052,7 @@ async function clasificarArchivoTradicional() {
     try {
         const formData = new FormData();
         formData.append('archivo', archivoSeleccionado);
-        formData.append('solo_hs', soloHS);
+        formData.append('obtener_hs', obtenerCodigosArancelarios);
         
         const headers = {};
         if (authToken) {
@@ -2032,7 +2076,7 @@ async function clasificarArchivoTradicional() {
         }
         
         if (result.success) {
-            procesarResultadoClasificacion(result, soloHS);
+            procesarResultadoClasificacion(result, obtenerCodigosArancelarios);
         } else {
             throw new Error('No se pudo obtener la clasificación');
         }
@@ -2047,7 +2091,7 @@ async function clasificarArchivoTradicional() {
 // Nueva función: Clasificación con soporte de batch y confirmación de items
 // Nueva función: Clasificación con flujo de 3 pasos para detección de items
 async function clasificarArchivoConBatch() {
-    const soloHS = document.getElementById('solo-hs-archivo').checked;
+    const obtenerCodigosArancelarios = document.getElementById('solo-hs-archivo').checked;
     
     console.log('📤 Clasificando archivo (nuevo flujo):', archivoSeleccionado.name);
     
@@ -2097,9 +2141,9 @@ async function clasificarArchivoConBatch() {
         const necesitaBatch = itemsConfirmados > 10;
         
         if (necesitaBatch) {
-            await procesarConSSE(analisisResult.fileId, itemsConfirmados, soloHS);
+            await procesarConSSE(analisisResult.fileId, itemsConfirmados, obtenerCodigosArancelarios);
         } else {
-            await procesarDirecto(analisisResult.fileId, itemsConfirmados, soloHS);
+            await procesarDirecto(analisisResult.fileId, itemsConfirmados, obtenerCodigosArancelarios);
         }
         
     } catch (error) {
@@ -2708,11 +2752,11 @@ function mostrarModalConfirmacionItems(datos) {
 }
 
 // Procesar con SSE (para batch con progreso)
-async function procesarConSSE(fileId, itemsConfirmados, soloHS) {
+async function procesarConSSE(fileId, itemsConfirmados, obtenerCodigosArancelarios) {
     // Primero, iniciar clasificación para que el archivo se registre con los items correctos
     const formData = new FormData();
     formData.append('archivo', archivoSeleccionado);
-    formData.append('solo_hs', soloHS);
+    formData.append('obtener_hs', obtenerCodigosArancelarios);
     formData.append('operationType', 'import');
     formData.append('itemsUsuario', itemsConfirmados);
     
@@ -2769,7 +2813,7 @@ async function procesarConSSE(fileId, itemsConfirmados, soloHS) {
             ocultarProgresoBatch();
             
             if (data.success) {
-                procesarResultadoClasificacion(data, soloHS);
+                procesarResultadoClasificacion(data, obtenerCodigosArancelarios);
                 resolve(data);
             } else {
                 reject(new Error(data.error || 'Error en clasificación'));
@@ -2798,7 +2842,7 @@ async function procesarConSSE(fileId, itemsConfirmados, soloHS) {
 }
 
 // Procesar directo (sin batch)
-async function procesarDirecto(fileId, itemsConfirmados, soloHS) {
+async function procesarDirecto(fileId, itemsConfirmados, obtenerCodigosArancelarios) {
     mostrarProgresoBatch('Procesando documento...', 30);
     
     const headers = {
@@ -2814,7 +2858,7 @@ async function procesarDirecto(fileId, itemsConfirmados, soloHS) {
         body: JSON.stringify({
             fileId,
             itemsConfirmados,
-            soloHS,
+            obtener_hs: obtenerCodigosArancelarios,
             operationType: 'import'
         })
     });
@@ -2827,12 +2871,12 @@ async function procesarDirecto(fileId, itemsConfirmados, soloHS) {
         throw new Error(result.error || 'Error al procesar documento');
     }
     
-    procesarResultadoClasificacion(result, soloHS);
+    procesarResultadoClasificacion(result, obtenerCodigosArancelarios);
 }
 
 // Mantener compatibilidad con el código anterior
 async function clasificarArchivoConBatchLegacy() {
-    const soloHS = document.getElementById('solo-hs-archivo').checked;
+    const obtenerCodigosArancelarios = document.getElementById('solo-hs-archivo').checked;
     
     console.log('📤 Clasificando archivo (legacy):', archivoSeleccionado.name);
     
@@ -2842,7 +2886,7 @@ async function clasificarArchivoConBatchLegacy() {
         
         const formData = new FormData();
         formData.append('archivo', archivoSeleccionado);
-        formData.append('solo_hs', soloHS);
+        formData.append('obtener_hs', obtenerCodigosArancelarios);
         formData.append('operationType', 'import');
         
         const headers = {};
@@ -2907,7 +2951,7 @@ async function clasificarArchivoConBatchLegacy() {
                 ocultarProgresoBatch();
                 
                 if (data.success) {
-                    procesarResultadoClasificacion(data, soloHS);
+                    procesarResultadoClasificacion(data, obtenerCodigosArancelarios);
                     resolve(data);
                 } else {
                     reject(new Error(data.error || 'Error en clasificación'));
@@ -3069,9 +3113,22 @@ function ocultarProgresoBatch() {
     }
 }
 
+// Variable global para rastrear si se debe mostrar HS
+window.obtenerCodigosArancelarios = true;
+
 // Función común para procesar el resultado de la clasificación
-function procesarResultadoClasificacion(result, soloHS) {
+function procesarResultadoClasificacion(result, obtenerCodigosArancelarios) {
     hideLoading();
+    
+    // GUARDAR la PREFERENCIA ACTUAL del usuario en variable global
+    window.obtenerCodigosArancelarios = obtenerCodigosArancelarios;
+    console.log('🔧 Preferencia de usuario (obtenerCodigosArancelarios):', window.obtenerCodigosArancelarios);
+    console.log('💾 Guardando datos ORIGINALES con HS intactos para permitir cambios posteriores...');
+    
+    // GUARDAR los datos ORIGINALES SIN MODIFICAR en variable global
+    // Esto nos permite cambiar la vista sin perder los datos
+    window._datosOriginalMaestro = JSON.parse(JSON.stringify(result.data));
+    console.log('📦 Datos originales maestro guardados:', window._datosOriginalMaestro);
     
     // Actualizar información de consumo si está disponible
     if (result.tokens_info && userInfo && userInfo.limites) {
@@ -3084,17 +3141,30 @@ function procesarResultadoClasificacion(result, soloHS) {
         updatePlanInfo();
     }
     
-    // Guardar el resultado en la variable global
-    resultadoActual = result.data;
-    // IMPORTANTE: Sincronizar con window.resultadoActual
-    window.resultadoActual = result.data;
-    
-    // Si es modo solo_hs, mostrar solo el código
-    if (soloHS && result.data.hs) {
-        showResults({ hs: result.data.hs }, result.tokens_info);
-    } else {
-        showResults(result.data, result.tokens_info);
+    // NUEVO: Manejar estructura anidada ImportDUA.ImpDeclaration del GPT
+    let datosFinales = result.data;
+    if (result.data?.ImportDUA?.ImpDeclaration) {
+        console.log('🔄 Detectada estructura anidada ImportDUA.ImpDeclaration - extrayendo datos...');
+        const impDeclaration = result.data.ImportDUA.ImpDeclaration;
+        const products = impDeclaration.ImpDeclarationProduct;
+        datosFinales = {
+            ...impDeclaration,
+            ImpDeclarationProduct: Array.isArray(products) ? products : (products ? [products] : [])
+        };
+        console.log('✅ Datos extraídos de estructura anidada:', datosFinales);
     }
+    
+    // Guardar el resultado en la variable global
+    resultadoActual = datosFinales;
+    // IMPORTANTE: Sincronizar con window.resultadoActual
+    window.resultadoActual = datosFinales;
+    
+    console.log('✅ Resultado guardado. Estado de renderizado:');
+    console.log('  - obtenerCodigosArancelarios:', window.obtenerCodigosArancelarios);
+    console.log('  - Productos en datosFinales:', datosFinales.ImpDeclarationProduct?.length || datosFinales.productos?.length || 1);
+    
+    // Mostrar resultados finales
+    showResults(datosFinales, result.tokens_info);
     
     // Mostrar info de batch si aplica
     if (result.batchInfo && result.batchInfo.modoBatch) {
@@ -3259,9 +3329,52 @@ function procesarDatosParaExporte(data) {
     const itemsFormateados = items.map(item => {
         const itemFormateado = { ...item };
         
-        // Formatear código HS
-        if (itemFormateado.hs) {
-            itemFormateado.hs = formatearCodigoHS(itemFormateado.hs);
+        // IMPORTANTE: Aplicar preferencia de HS según la preferencia actual del usuario
+        const mostrarHS = window.obtenerCodigosArancelarios !== false;
+        
+        if (!mostrarHS) {
+            console.log('🧹 Eliminando campos HS en exportación porque usuario no los solicitó');
+            // Eliminar cualquier campo de código HS
+            delete itemFormateado.hs;
+            delete itemFormateado.HSCode;
+            delete itemFormateado.codigo_hs;
+            delete itemFormateado.CodigoHS;
+            delete itemFormateado.Subpartida;
+            
+            // También eliminar de productos anidados si existen
+            if (itemFormateado.ImpDeclarationProduct && Array.isArray(itemFormateado.ImpDeclarationProduct)) {
+                itemFormateado.ImpDeclarationProduct = itemFormateado.ImpDeclarationProduct.map(prod => {
+                    const copia = { ...prod };
+                    delete copia.hs;
+                    delete copia.HSCode;
+                    delete copia.codigo_hs;
+                    delete copia.CodigoHS;
+                    delete copia.Subpartida;
+                    return copia;
+                });
+                console.log('✅ Campos HS eliminados de ImpDeclarationProduct en exportación');
+            }
+            
+            if (itemFormateado.productos && Array.isArray(itemFormateado.productos)) {
+                itemFormateado.productos = itemFormateado.productos.map(prod => {
+                    const copia = { ...prod };
+                    delete copia.hs;
+                    delete copia.HSCode;
+                    delete copia.codigo_hs;
+                    delete copia.CodigoHS;
+                    delete copia.Subpartida;
+                    return copia;
+                });
+                console.log('✅ Campos HS eliminados de productos en exportación');
+            }
+        } else {
+            // Formatear código HS si lo queremos mostrar
+            if (itemFormateado.hs) {
+                itemFormateado.hs = formatearCodigoHS(itemFormateado.hs);
+            }
+            if (itemFormateado.HSCode) {
+                itemFormateado.HSCode = formatearCodigoHS(itemFormateado.HSCode);
+            }
         }
         
         // Eliminar campos no deseados
@@ -7141,6 +7254,12 @@ function guardarDeclaracionGeneralReal() {
     // Ocultar el panel de validación temporalmente
     ocultarPanelValidacion();
     
+    // **NUEVO**: Actualizar la sección visible de datos de la declaración
+    const declaracionSection = document.querySelector('.declaration-summary-section');
+    if (declaracionSection && typeof renderizarSeccionDeclaracion === 'function') {
+        declaracionSection.outerHTML = renderizarSeccionDeclaracion(window.resultadoActual);
+    }
+    
     // Revalidar campos después de un breve delay
     setTimeout(() => {
         console.log('🔄 Revalidando con datos:', window.resultadoActual);
@@ -7945,6 +8064,63 @@ async function guardarDefaults(event) {
         showNotification(error.message || 'Error al guardar configuración', 'error');
     }
 }
+
+// ============================================================
+// FUNCIÓN PARA MANEJO DINÁMICO DE CAMBIO HS
+// ============================================================
+function actualizarVistaHS(valorNuevo) {
+    console.log('🔄 Actualizando preferencia de HS a:', valorNuevo);
+    
+    // Actualizar la variable global
+    window.obtenerCodigosArancelarios = valorNuevo;
+    
+    // Si hay una clasificación activa, re-renderizar los productos
+    if (window.resultadoActual && typeof renderizarProductos === 'function') {
+        console.log('🎨 Re-renderizando productos con nueva preferencia HS...');
+        
+        // Llamar a renderizarProductos con los datos actuales
+        // (que todavía tienen los HS porque los guardamos sin modificar)
+        renderizarProductos(window.resultadoActual, true);
+        
+        console.log('✅ Productos re-renderizados exitosamente');
+    } else {
+        console.log('⚠️ No hay clasificación activa para actualizar');
+    }
+}
+
+// Manejador de cambios en los checkboxes de HS
+document.addEventListener('DOMContentLoaded', function() {
+    // Escuchar cambios en ambos checkboxes de HS (texto y archivo)
+    const checkboxTexto = document.getElementById('solo-hs-texto');
+    const checkboxArchivo = document.getElementById('solo-hs-archivo');
+    
+    // Función auxiliar para manejar el cambio
+    function manejarCambioHS(event) {
+        const nuevoValor = event.target.checked;
+        console.log('✋ Usuario cambió preferencia HS a:', nuevoValor);
+        
+        // Actualizar ambos checkboxes para mantenerlos sincronizados
+        if (checkboxTexto) checkboxTexto.checked = nuevoValor;
+        if (checkboxArchivo) checkboxArchivo.checked = nuevoValor;
+        
+        // Actualizar la vista
+        actualizarVistaHS(nuevoValor);
+    }
+    
+    if (checkboxTexto) {
+        checkboxTexto.addEventListener('change', manejarCambioHS);
+        console.log('✅ Listener agregado a checkbox de texto');
+    }
+    
+    if (checkboxArchivo) {
+        checkboxArchivo.addEventListener('change', manejarCambioHS);
+        console.log('✅ Listener agregado a checkbox de archivo');
+    }
+    
+    // Inicializar la variable global con el estado actual de los checkboxes
+    window.obtenerCodigosArancelarios = checkboxTexto?.checked ?? checkboxArchivo?.checked ?? true;
+    console.log('🔧 Preferencia inicial HS:', window.obtenerCodigosArancelarios);
+});
 
 document.addEventListener('DOMContentLoaded', function() {
     const defaultsForm = document.getElementById('defaults-form');

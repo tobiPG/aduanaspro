@@ -35,6 +35,9 @@ function renderizarProductos(data, esActualizacion = false) {
     // Crear HTML de la vista de productos
     const html = `
         <div class="products-container">
+            <!-- NUEVA SECCIÓN: Datos de la Declaración (Header) -->
+            ${renderizarSeccionDeclaracion(data)}
+            
             <!-- Header -->
             <div class="products-header">
                 <div class="products-header-left">
@@ -79,9 +82,153 @@ function renderizarProductos(data, esActualizacion = false) {
 }
 
 /**
+ * Renderiza la sección de datos de la declaración (header visible)
+ */
+function renderizarSeccionDeclaracion(data) {
+    const d = data || window.resultadoActual || {};
+    const supplier = d.ImpDeclarationSupplier || {};
+    
+    // Función helper para mostrar valor o placeholder
+    const mostrarValor = (valor, placeholder = 'No definido') => {
+        if (valor === undefined || valor === null || valor === '') {
+            return `<span style="color: #94a3b8; font-style: italic;">${placeholder}</span>`;
+        }
+        return escapeHtml(String(valor));
+    };
+    
+    // Formatear moneda
+    const formatMoney = (val) => {
+        const num = parseFloat(val);
+        if (isNaN(num)) return mostrarValor(null, '$0.00');
+        return `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
+    
+    return `
+        <div class="declaration-summary-section" onclick="if(typeof abrirModalDeclaracionGeneral === 'function') abrirModalDeclaracionGeneral();" 
+             style="cursor: pointer; margin-bottom: 20px; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); 
+                    border: 2px solid #0ea5e9; border-radius: 16px; padding: 20px; 
+                    box-shadow: 0 4px 12px rgba(14, 165, 233, 0.15); transition: all 0.3s ease;"
+             onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(14, 165, 233, 0.25)';"
+             onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(14, 165, 233, 0.15)';">
+            
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <h3 style="margin: 0; color: #0369a1; font-size: 1.1rem; display: flex; align-items: center; gap: 10px;">
+                    <i class="fas fa-file-invoice" style="color: #0ea5e9;"></i>
+                    Datos de la Declaración
+                </h3>
+                <span style="background: #0ea5e9; color: white; padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 600;">
+                    <i class="fas fa-edit"></i> Click para editar
+                </span>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+                <!-- Consignatario -->
+                <div class="decl-field-preview" style="background: white; padding: 12px; border-radius: 10px; border-left: 4px solid #0ea5e9;">
+                    <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">
+                        <i class="fas fa-user"></i> Consignatario
+                    </div>
+                    <div style="font-size: 0.9rem; color: #1e293b; font-weight: 500;">
+                        ${mostrarValor(d.ConsigneeName, 'Sin definir')}
+                    </div>
+                    <div style="font-size: 0.75rem; color: #64748b; margin-top: 2px;">
+                        RNC: ${mostrarValor(d.ConsigneeCode, 'Sin RNC')}
+                    </div>
+                </div>
+                
+                <!-- Proveedor Extranjero -->
+                <div class="decl-field-preview" style="background: white; padding: 12px; border-radius: 10px; border-left: 4px solid #8b5cf6;">
+                    <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">
+                        <i class="fas fa-globe"></i> Proveedor
+                    </div>
+                    <div style="font-size: 0.9rem; color: #1e293b; font-weight: 500;">
+                        ${mostrarValor(supplier.ForeignSupplierName, 'Sin definir')}
+                    </div>
+                    <div style="font-size: 0.75rem; color: #64748b; margin-top: 2px;">
+                        País: ${mostrarValor(supplier.ForeignSupplierNationality, 'Sin código')}
+                    </div>
+                </div>
+                
+                <!-- Factura Comercial -->
+                <div class="decl-field-preview" style="background: white; padding: 12px; border-radius: 10px; border-left: 4px solid #10b981;">
+                    <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">
+                        <i class="fas fa-receipt"></i> Factura
+                    </div>
+                    <div style="font-size: 0.9rem; color: #1e293b; font-weight: 500;">
+                        ${mostrarValor(d.CommercialInvoiceNo, 'Sin número')}
+                    </div>
+                </div>
+                
+                <!-- Valores Monetarios -->
+                <div class="decl-field-preview" style="background: white; padding: 12px; border-radius: 10px; border-left: 4px solid #f59e0b;">
+                    <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">
+                        <i class="fas fa-dollar-sign"></i> FOB Total
+                    </div>
+                    <div style="font-size: 1rem; color: #1e293b; font-weight: 700;">
+                        ${formatMoney(d.TotalFOB)}
+                    </div>
+                </div>
+                
+                <div class="decl-field-preview" style="background: white; padding: 12px; border-radius: 10px; border-left: 4px solid #ef4444;">
+                    <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">
+                        <i class="fas fa-shield-alt"></i> Seguro
+                    </div>
+                    <div style="font-size: 1rem; color: #1e293b; font-weight: 700;">
+                        ${formatMoney(d.InsuranceValue)}
+                    </div>
+                </div>
+                
+                <div class="decl-field-preview" style="background: white; padding: 12px; border-radius: 10px; border-left: 4px solid #6366f1;">
+                    <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">
+                        <i class="fas fa-truck"></i> Flete
+                    </div>
+                    <div style="font-size: 1rem; color: #1e293b; font-weight: 700;">
+                        ${formatMoney(d.FreightValue)}
+                    </div>
+                </div>
+                
+                <div class="decl-field-preview" style="background: white; padding: 12px; border-radius: 10px; border-left: 4px solid #22c55e;">
+                    <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">
+                        <i class="fas fa-calculator"></i> CIF Total
+                    </div>
+                    <div style="font-size: 1rem; color: #22c55e; font-weight: 700;">
+                        ${formatMoney(d.TotalCIF)}
+                    </div>
+                </div>
+                
+                <div class="decl-field-preview" style="background: white; padding: 12px; border-radius: 10px; border-left: 4px solid #64748b;">
+                    <div style="font-size: 0.7rem; color: #64748b; text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">
+                        <i class="fas fa-weight-hanging"></i> Peso Total
+                    </div>
+                    <div style="font-size: 1rem; color: #1e293b; font-weight: 700;">
+                        ${d.TotalWeight ? d.TotalWeight + ' kg' : mostrarValor(null, '0 kg')}
+                    </div>
+                </div>
+            </div>
+            
+            <div style="text-align: center; margin-top: 12px; padding-top: 12px; border-top: 1px dashed #cbd5e1;">
+                <span style="color: #0369a1; font-size: 0.85rem;">
+                    <i class="fas fa-hand-pointer"></i> Haz clic en cualquier parte para editar todos los campos de la declaración
+                </span>
+            </div>
+        </div>
+    `;
+}
+
+/**
  * Extrae productos del resultado de clasificación
  */
 function extraerProductos(data) {
+    // NUEVO: Manejar estructura anidada ImportDUA.ImpDeclaration
+    if (data.ImportDUA?.ImpDeclaration?.ImpDeclarationProduct) {
+        const products = data.ImportDUA.ImpDeclaration.ImpDeclarationProduct;
+        const productsArray = Array.isArray(products) ? products : [products];
+        return productsArray.map((p, i) => ({
+            ...p,
+            _index: i,
+            _isManual: false
+        }));
+    }
+    
     // Buscar en diferentes estructuras posibles
     if (data.ImpDeclarationProduct && Array.isArray(data.ImpDeclarationProduct)) {
         return data.ImpDeclarationProduct.map((p, i) => ({
@@ -113,7 +260,7 @@ function extraerProductos(data) {
 
 /**
  * Renderiza una tarjeta de producto individual
- * MEJORADO: Muestra TODOS los campos disponibles del producto
+ * MEJORADO: Filtra HS dinámicamente basándose en la preferencia actual del usuario
  */
 function renderizarTarjetaProducto(producto, index) {
     // Buscar nombre en múltiples posibles campos
@@ -131,18 +278,43 @@ function renderizarTarjetaProducto(producto, index) {
     const isManual = producto._isManual === true;
     
     // Extraer TODOS los campos del producto para mostrarlos
-    const camposExcluidos = ['_index', '_isManual', 'HSCode', 'hs', 'codigo_hs'];
-    const todosLosCampos = extraerTodosLosCampos(producto, camposExcluidos);
+    const camposExcluidos = ['_index', '_isManual'];
+    let todosLosCampos = extraerTodosLosCampos(producto, camposExcluidos);
+    
+    // LÓGICA CRÍTICA: Determinar si mostrar HS dinámicamente
+    // 1. Usar la preferencia global actual del usuario (puede cambiar después de clasificar)
+    // 2. DEFAULT es true si no está definido (mostrar HS)
+    const mostrarHS = window.obtenerCodigosArancelarios !== false;
+    
+    console.log(`🎨 Renderizando producto ${index}: mostrarHS=${mostrarHS}, obtenerCodigosArancelarios=${window.obtenerCodigosArancelarios}`);
+    
+    // Si el usuario decidió NO querer HS, filtrar los campos
+    let camposFinales = todosLosCampos;
+    if (!mostrarHS) {
+        console.log(`🧹 Usuario NO quiere HS. Filtrando campos del producto ${index}`);
+        camposFinales = todosLosCampos.filter(campo => {
+            const esHS = campo.key === 'HSCode' || campo.key === 'hs' || campo.key === 'codigo_hs' || campo.key === 'CodigoHS' || campo.key === 'Subpartida';
+            return !esHS;
+        });
+        console.log(`  Campos antes: ${todosLosCampos.length}, después: ${camposFinales.length}`);
+    }
     
     return `
         <div class="product-card ${isManual ? 'manual-product' : ''}" data-product-index="${index}">
             <!-- Header -->
             <div class="product-card-header">
                 <div class="product-number-badge">${index + 1}</div>
+                ${mostrarHS && hsCode ? `
                 <div class="product-hs-info">
                     <div class="product-hs-code">${formatearCodigoHS(hsCode)}</div>
                     <div class="product-hs-label">Código Arancelario</div>
                 </div>
+                ` : `
+                <div class="product-hs-info">
+                    <div class="product-hs-code" style="color: #f59e0b;">---</div>
+                    <div class="product-hs-label">Sin Código HS</div>
+                </div>
+                `}
             </div>
             
             <!-- Body -->
@@ -153,9 +325,9 @@ function renderizarTarjetaProducto(producto, index) {
                     ${descripcionArancel && nombre ? `<div class="product-description">${escapeHtml(descripcionArancel)}</div>` : ''}
                 </div>
                 
-                <!-- TODOS los campos disponibles -->
+                <!-- TODOS los campos disponibles (filtrando HS si no se solicitó) -->
                 <div class="product-details-grid">
-                    ${todosLosCampos.map(campo => `
+                    ${camposFinales.map(campo => `
                         <div class="product-detail-item ${campo.esLargo ? 'full-width' : ''}" 
                              onclick="editarCampoProducto(${index}, '${campo.key}', '${escapeHtml(campo.label)}')">
                             <div class="product-detail-label">
@@ -1661,6 +1833,7 @@ function actualizarVistaProductos() {
 
 // Exportar funciones globalmente
 window.renderizarProductos = renderizarProductos;
+window.renderizarSeccionDeclaracion = renderizarSeccionDeclaracion;
 window.abrirModalAgregarProducto = abrirModalAgregarProducto;
 window.editarProductoCompleto = editarProductoCompleto;
 window.cerrarModalProducto = cerrarModalProducto;
