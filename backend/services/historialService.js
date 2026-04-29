@@ -10,10 +10,14 @@ class HistorialService {
             
             // Extraer productos para búsqueda rápida
             const productos = [];
+            let headerData = {};
+            
+            // Manejar estructura anidada ImportDUA.ImpDeclaration (nuevo formato GPT)
             if (resultado.ImportDUA?.ImpDeclaration?.ImpDeclarationProduct) {
-                const productsArray = Array.isArray(resultado.ImportDUA.ImpDeclaration.ImpDeclarationProduct) 
-                    ? resultado.ImportDUA.ImpDeclaration.ImpDeclarationProduct 
-                    : [resultado.ImportDUA.ImpDeclaration.ImpDeclarationProduct];
+                const impDeclaration = resultado.ImportDUA.ImpDeclaration;
+                const productsArray = Array.isArray(impDeclaration.ImpDeclarationProduct) 
+                    ? impDeclaration.ImpDeclarationProduct 
+                    : [impDeclaration.ImpDeclarationProduct];
                 
                 productsArray.forEach(prod => {
                     productos.push({
@@ -22,6 +26,43 @@ class HistorialService {
                         ProductCode: prod.ProductCode
                     });
                 });
+                
+                // Extraer datos del header (factura)
+                headerData = {
+                    CommercialInvoiceNo: impDeclaration.CommercialInvoiceNo,
+                    DeclarationDate: impDeclaration.DeclarationDate,
+                    TotalFOB: impDeclaration.TotalFOB,
+                    TotalCIF: impDeclaration.TotalCIF,
+                    FreightValue: impDeclaration.FreightValue,
+                    InsuranceValue: impDeclaration.InsuranceValue,
+                    TotalWeight: impDeclaration.TotalWeight,
+                    ImpDeclarationSupplier: impDeclaration.ImpDeclarationSupplier
+                };
+            } 
+            // Manejar estructura plana (ImpDeclarationProduct directo)
+            else if (resultado.ImpDeclarationProduct) {
+                const productsArray = Array.isArray(resultado.ImpDeclarationProduct) 
+                    ? resultado.ImpDeclarationProduct 
+                    : [resultado.ImpDeclarationProduct];
+                
+                productsArray.forEach(prod => {
+                    productos.push({
+                        HSCode: prod.HSCode,
+                        ProductName: prod.ProductName,
+                        ProductCode: prod.ProductCode
+                    });
+                });
+                
+                // Extraer datos del header si existen
+                headerData = {
+                    CommercialInvoiceNo: resultado.CommercialInvoiceNo,
+                    TotalFOB: resultado.TotalFOB,
+                    TotalCIF: resultado.TotalCIF,
+                    FreightValue: resultado.FreightValue,
+                    InsuranceValue: resultado.InsuranceValue,
+                    TotalWeight: resultado.TotalWeight,
+                    ImpDeclarationSupplier: resultado.ImpDeclarationSupplier
+                };
             }
             
             const clasificacion = {
@@ -32,6 +73,7 @@ class HistorialService {
                 tipo_operacion: tipoOperacion,
                 resultado: resultado,
                 productos: productos,
+                headerData: headerData, // Guardar datos del header
                 tokens_consumidos: tokensConsumidos,
                 fecha_creacion: new Date().toISOString(),
                 editado: false,

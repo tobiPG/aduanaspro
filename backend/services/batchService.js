@@ -178,8 +178,8 @@ class BatchService {
                 
                 // Solo enviar JSON con parámetros
                 const inputText = `json { "document_id": "${documentId}", "batch_start": ${batchStart}, "batch_size": ${BATCH_SIZE} }`;
-                
-                console.log(`📤 Enviando parámetros:`, JSON.stringify(batchParams));
+
+                console.log(`📤 Enviando parámetros: ${inputText}`);
                 
                 // Enviar a OpenAI con el PDF y los parámetros de batch
                 let response;

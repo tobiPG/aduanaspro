@@ -84,8 +84,9 @@ app.post('/clasificar-archivo', upload.single('archivo'), async (req, res) => {
       });
     }
     
-    const { solo_hs, operationType = 'import' } = req.body;
-    const soloHS = solo_hs === 'true' || solo_hs === true;
+    const { obtener_hs = true, solo_hs, operationType = 'import' } = req.body;
+    // Soporte para parámetro legado solo_hs: si viene como true, significa que NO quiere HS
+    const obtenerCodigosArancelarios = solo_hs !== undefined ? !solo_hs : obtener_hs;
     
     // Con diskStorage, el archivo está en req.file.path
     const fileBuffer = fs.readFileSync(req.file.path);
@@ -93,7 +94,7 @@ app.post('/clasificar-archivo', upload.single('archivo'), async (req, res) => {
     // Para archivos de texto, procesar directamente
     if (req.file.mimetype === 'text/plain') {
       const contenido = fileBuffer.toString('utf-8');
-      const resultado = await clasificarTextoConResponsesAPI(contenido, soloHS, operationType);
+      const resultado = await clasificarTextoConResponsesAPI(contenido, obtenerCodigosArancelarios, operationType);
       // Limpiar archivo temporal
       fs.unlinkSync(req.file.path);
       return res.json({
@@ -114,7 +115,7 @@ app.post('/clasificar-archivo', upload.single('archivo'), async (req, res) => {
           req.file.path,
           req.file.originalname,
           req.file.mimetype,
-          soloHS,
+          obtenerCodigosArancelarios,
           operationType
         );
         
@@ -140,7 +141,7 @@ app.post('/clasificar-archivo', upload.single('archivo'), async (req, res) => {
     // Para imágenes, usar Vision API
     if (req.file.mimetype.startsWith('image/')) {
       const base64Data = fileBuffer.toString('base64');
-      const resultado = await clasificarConVision(base64Data, req.file.mimetype, soloHS, operationType);
+      const resultado = await clasificarConVision(base64Data, req.file.mimetype, obtenerCodigosArancelarios, operationType);
       // Limpiar archivo temporal
       fs.unlinkSync(req.file.path);
       return res.json({
@@ -1451,7 +1452,7 @@ app.get('/', (req, res) => {
 });
 
 // Función para clasificar texto usando Responses API
-async function clasificarTextoConResponsesAPI(textoProducto, soloHS = false, operationType = 'import') {
+async function clasificarTextoConResponsesAPI(textoProducto, soloHS = false, operationType = 'import', skipHS = false) {
   try {
     const promptId = process.env.OPENAI_PROMPT_ID;
     const promptVersion = process.env.OPENAI_PROMPT_VERSION;
@@ -1463,7 +1464,7 @@ async function clasificarTextoConResponsesAPI(textoProducto, soloHS = false, ope
     console.log('\n🟣 ========== LLAMADA A RESPONSES API (TEXTO) ==========');
     console.log('📋 Usando Prompt ID:', promptId);
     console.log('📋 Versión del Prompt:', promptVersion || 'latest');
-    console.log('📦 Modo solo_hs:', soloHS);
+    console.log('📦 Modo skip_hs:', skipHS);
     console.log('📦 Tipo operación:', operationType);
     console.log('📝 Texto:', textoProducto.substring(0, 200) + '...');
     
@@ -1949,7 +1950,7 @@ app.get('/', (req, res) => {
 });
 
 // Función para clasificar texto usando Responses API
-async function clasificarTextoConResponsesAPI(textoProducto, soloHS = false, operationType = 'import') {
+async function clasificarTextoConResponsesAPI(textoProducto, soloHS = false, operationType = 'import', skipHS = false) {
   try {
     const promptId = process.env.OPENAI_PROMPT_ID;
     const promptVersion = process.env.OPENAI_PROMPT_VERSION;
@@ -1961,7 +1962,7 @@ async function clasificarTextoConResponsesAPI(textoProducto, soloHS = false, ope
     console.log('\n🟣 ========== LLAMADA A RESPONSES API (TEXTO) ==========');
     console.log('📋 Usando Prompt ID:', promptId);
     console.log('📋 Versión del Prompt:', promptVersion || 'latest');
-    console.log('📦 Modo solo_hs:', soloHS);
+    console.log('📦 Modo skip_hs:', skipHS);
     console.log('📦 Tipo operación:', operationType);
     console.log('📝 Texto:', textoProducto.substring(0, 200) + '...');
     
@@ -2167,7 +2168,7 @@ async function clasificarConResponsesAPIConArchivo(filePath, filename, mimeType,
     console.log('\n🟣 ========== LLAMADA A RESPONSES API CON ARCHIVO ==========');
     console.log('📋 Usando Prompt ID:', promptId);
     console.log('📋 Versión del Prompt:', promptVersion || 'latest');
-    console.log('📦 Modo solo_hs:', soloHS);
+    console.log('📦 Modo skip_hs:', skipHS);
     console.log('📦 Tipo operación:', operationType);
     console.log('📄 Archivo:', filename);
     console.log('📄 Tipo MIME:', mimeType);
@@ -2456,7 +2457,7 @@ app.get('/', (req, res) => {
 });
 
 // Función para clasificar texto usando Responses API
-async function clasificarTextoConResponsesAPI(textoProducto, soloHS = false, operationType = 'import') {
+async function clasificarTextoConResponsesAPI(textoProducto, soloHS = false, operationType = 'import', skipHS = false) {
   try {
     const promptId = process.env.OPENAI_PROMPT_ID;
     const promptVersion = process.env.OPENAI_PROMPT_VERSION;
@@ -2468,7 +2469,7 @@ async function clasificarTextoConResponsesAPI(textoProducto, soloHS = false, ope
     console.log('\n🟣 ========== LLAMADA A RESPONSES API (TEXTO) ==========');
     console.log('📋 Usando Prompt ID:', promptId);
     console.log('📋 Versión del Prompt:', promptVersion || 'latest');
-    console.log('📦 Modo solo_hs:', soloHS);
+    console.log('📦 Modo skip_hs:', skipHS);
     console.log('📦 Tipo operación:', operationType);
     console.log('📝 Texto:', textoProducto.substring(0, 200) + '...');
     

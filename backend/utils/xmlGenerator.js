@@ -4,6 +4,125 @@
  */
 
 /**
+ * Mapeo de nombres de país a códigos ISO 3166-1 numéricos
+ * Usado para convertir respuestas de la API que vienen con nombres de país
+ */
+const COUNTRY_NAME_TO_CODE = {
+  // América
+  'república dominicana': '214',
+  'republica dominicana': '214',
+  'dominican republic': '214',
+  'rd': '214',
+  'estados unidos': '840',
+  'united states': '840',
+  'usa': '840',
+  'us': '840',
+  'eeuu': '840',
+  'mexico': '484',
+  'méxico': '484',
+  'canada': '124',
+  'canadá': '124',
+  'brasil': '076',
+  'brazil': '076',
+  'colombia': '170',
+  'argentina': '032',
+  'chile': '152',
+  'peru': '604',
+  'perú': '604',
+  'panama': '591',
+  'panamá': '591',
+  // Asia
+  'china': '156',
+  'japan': '392',
+  'japón': '392',
+  'japon': '392',
+  'south korea': '410',
+  'corea del sur': '410',
+  'korea': '410',
+  'corea': '410',
+  'taiwan': '158',
+  'taiwán': '158',
+  'hong kong': '344',
+  'india': '356',
+  'vietnam': '704',
+  'thailand': '764',
+  'tailandia': '764',
+  'indonesia': '360',
+  'malaysia': '458',
+  'malasia': '458',
+  'singapore': '702',
+  'singapur': '702',
+  'philippines': '608',
+  'filipinas': '608',
+  // Europa
+  'germany': '276',
+  'alemania': '276',
+  'españa': '724',
+  'spain': '724',
+  'france': '250',
+  'francia': '250',
+  'italy': '380',
+  'italia': '380',
+  'united kingdom': '826',
+  'reino unido': '826',
+  'uk': '826',
+  'netherlands': '528',
+  'holanda': '528',
+  'paises bajos': '528',
+  'portugal': '620',
+  'belgium': '056',
+  'bélgica': '056',
+  'belgica': '056',
+  'switzerland': '756',
+  'suiza': '756',
+  'sweden': '752',
+  'suecia': '752',
+  // Otros
+  'australia': '036',
+  'new zealand': '554',
+  'nueva zelanda': '554',
+  'south africa': '710',
+  'sudáfrica': '710',
+  'sudafrica': '710',
+  'turkey': '792',
+  'turquía': '792',
+  'turquia': '792',
+  'israel': '376',
+  'egypt': '818',
+  'egipto': '818',
+  'russia': '643',
+  'rusia': '643',
+  'united arab emirates': '784',
+  'emiratos arabes unidos': '784',
+  'uae': '784',
+};
+
+/**
+ * Convierte nombre de país a código ISO numérico
+ * @param {string} countryNameOrCode - Nombre del país o código
+ * @returns {string} - Código ISO numérico
+ */
+function normalizeCountryCode(countryNameOrCode) {
+  if (!countryNameOrCode) return '';
+  
+  const value = String(countryNameOrCode).trim();
+  
+  // Si ya es un código numérico, devolverlo directamente
+  if (/^\d{3}$/.test(value)) {
+    return value;
+  }
+  
+  // Buscar en el mapeo (case insensitive)
+  const lowerValue = value.toLowerCase();
+  if (COUNTRY_NAME_TO_CODE[lowerValue]) {
+    return COUNTRY_NAME_TO_CODE[lowerValue];
+  }
+  
+  // Si no encuentra, devolver el valor original (puede ser un código no mapeado)
+  return value;
+}
+
+/**
  * Convierte un valor a string XML seguro
  */
 function escapeXml(value) {
@@ -222,7 +341,7 @@ ${xmlTag('Remark', data.Remark)}`;
 <ImpDeclarationSupplier>
 ${xmlTag('ForeignSupplierName', supplier.ForeignSupplierName)}
 ${xmlTag('ForeignSupplierCode', supplier.ForeignSupplierCode)}
-${xmlTag('ForeignSupplierNationality', supplier.ForeignSupplierNationality)}
+${xmlTag('ForeignSupplierNationality', normalizeCountryCode(supplier.ForeignSupplierNationality))}
 </ImpDeclarationSupplier>`;
 
   // Productos
@@ -292,7 +411,7 @@ ${xmlTag('ProductSpecification', getValue('ProductSpecification'))}
 <TempProductYN>${product.TempProductYN === undefined || product.TempProductYN === null || product.TempProductYN === '' ? 'true' : (product.TempProductYN === 'true' || product.TempProductYN === true ? 'true' : 'false')}</TempProductYN>
 <CertificateOrignYN>${product.CertificateOrignYN === 'true' || product.CertificateOrignYN === true ? 'true' : 'false'}</CertificateOrignYN>
 ${xmlTag('CertificateOriginNo', getValue('CertificateOriginNo'))}
-${xmlTag('OriginCountry', getValue('OriginCountry', 'OriginCountryCode', 'pais_origen'))}
+${xmlTag('OriginCountry', normalizeCountryCode(getValue('OriginCountry', 'OriginCountryCode', 'pais_origen')))}
 <OrganicYN>${product.OrganicYN === 'true' || product.OrganicYN === true ? 'true' : 'false'}</OrganicYN>
 ${xmlTag('GradeAlcohol', getValue('GradeAlcohol'), '0.00')}
 ${xmlTag('CustomerSalesPrice', getValue('CustomerSalesPrice'), '0.0000')}
@@ -319,5 +438,7 @@ module.exports = {
   formatDate,
   xmlTag,
   normalizeHSCode,
-  normalizeUnitCode
+  normalizeUnitCode,
+  normalizeCountryCode,
+  COUNTRY_NAME_TO_CODE
 };
